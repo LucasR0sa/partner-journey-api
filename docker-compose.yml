@@ -1,0 +1,36 @@
+# docker compose up --build  → Postgres + API + CRM falso
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: journey
+      POSTGRES_PASSWORD: journey
+      POSTGRES_DB: journey
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U journey"]
+      interval: 5s
+      retries: 10
+
+  fake-crm:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npx --yes tsx tools/fake-crm.ts"
+    volumes: ["./tools:/app/tools:ro"]
+    environment: { PORT: "4000", FAIL_RATE: "0.15" }
+    ports: ["4000:4000"]
+
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://journey:journey@db:5432/journey
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-troque-este-segredo}
+      CRM_BASE_URL: http://fake-crm:4000
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
