@@ -7,7 +7,7 @@ liga cada cadastro ao lead de origem e sincroniza a produção do CRM, para resp
 *"quanto cada canal trouxe de parceiros e de produção?"*.
 
 Versão aberta, com dados fictícios, da arquitetura que construí em produção numa promotora de crédito
-(15 mil parceiros, 96,8% de cadastros ligados ao lead de origem).
+(96,8% dos cadastros ligados ao lead de origem).
 
 ```mermaid
 flowchart LR
