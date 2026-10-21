@@ -43,6 +43,9 @@ npm run seed       # 300 leads fictícios via webhook assinado
 
 Ou tudo em container: `docker compose up --build`.
 
+O Postgres do Compose fica em `localhost:5433` para não conflitar com uma instalação local na porta padrão.
+Na primeira inicialização, ele também cria o banco isolado `journey_test` usado pelos testes de integração.
+
 ## Testes
 ```bash
 npm test               # unitários + integração (precisa do Postgres do compose)
