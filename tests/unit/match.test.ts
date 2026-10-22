@@ -10,7 +10,7 @@ const lead = (id: number, daysBefore: number, emailNorm: string | null, phoneNor
   occurredAt: new Date(signup.signedUpAt.getTime() - daysBefore * 86_400_000),
 });
 
-describe.skip("pickOriginLead (ADR 0002)", () => {
+describe("pickOriginLead (ADR 0002)", () => {
   it("prefere e-mail a telefone, mesmo que o lead por telefone seja mais recente", () => {
     expect(pickOriginLead(signup, [lead(1, 1, null, "48999991234"), lead(2, 5, "ana@exemplo.com", null)])).toEqual({ leadId: 2, method: "email" });
   });

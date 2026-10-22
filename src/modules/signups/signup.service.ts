@@ -24,11 +24,51 @@ export interface LeadCandidate {
  *  4. Nenhum candidato → { leadId: null, method: "none" }.
  */
 export function pickOriginLead(
-  _signup: { emailNorm: string | null; phoneNorm: string | null; signedUpAt: Date },
-  _candidates: LeadCandidate[],
+  signup: {
+    emailNorm: string | null;
+    phoneNorm: string | null;
+    signedUpAt: Date;
+  },
+  candidates: LeadCandidate[],
 ): { leadId: number | null; method: MatchMethod } {
-  // TODO: implemente as 4 regras acima. Os testes em tests/unit/match.test.ts já descrevem os casos.
-  throw new Error("pickOriginLead: não implementado (dia 1 · bloco 2)");
+  const ninetyDaysInMs = 90 * 24 * 60 * 60 * 1000;
+
+  const validCandidates = candidates.filter((candidate) => {
+    const elapsed =
+      signup.signedUpAt.getTime() - candidate.occurredAt.getTime();
+
+    return elapsed > 0 && elapsed <= ninetyDaysInMs;
+  });
+
+// Coloca os candidatos do mais recente para o mais antigo.
+validCandidates.sort(
+  (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime(),
+);
+
+// Primeiro, procura pelo e-mail.
+if (signup.emailNorm) {
+  const emailMatch = validCandidates.find(
+    (candidate) => candidate.emailNorm === signup.emailNorm,
+  );
+
+  if (emailMatch) {
+    return { leadId: emailMatch.id, method: "email" };
+  }
+}
+
+// Se nenhum e-mail correspondeu, procura pelo telefone.
+if (signup.phoneNorm) {
+  const phoneMatch = validCandidates.find(
+    (candidate) => candidate.phoneNorm === signup.phoneNorm,
+  );
+
+  if (phoneMatch) {
+    return { leadId: phoneMatch.id, method: "phone" };
+  }
+}
+
+// Nenhuma correspondência encontrada.
+return { leadId: null, method: "none" };
 }
 
 // TODO: createSignupService(repo) com ingest(payload: SignupWebhook):
