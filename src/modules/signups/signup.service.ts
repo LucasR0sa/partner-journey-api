@@ -3,6 +3,8 @@
 // Leia antes: docs/adr/0002-matching-lead-cadastro.md
 // Use o módulo de leads como modelo (schema → service → repository → routes).
 // ─────────────────────────────────────────────────────────────────────────────
+import { normalizeEmail, normalizePhoneBR } from "../../shared/normalize.js";
+import type { SignupRepository } from "./signup.repository.js";
 import type { SignupWebhook } from "./signup.schema.js";
 
 const MATCH_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
@@ -71,8 +73,43 @@ export function pickOriginLead(
   return { leadId: null, method: "none" };
 }
 
-// TODO: createSignupService(repo) com ingest(payload: SignupWebhook):
-//   - normaliza e-mail/telefone (src/shared/normalize.ts)
-//   - busca candidatos no repositório (leads com o mesmo e-mail OU telefone)
-//   - chama pickOriginLead e faz UPSERT em partners (ON CONFLICT (crm_code))
+export interface SignupIngestResult {
+  status: "created" | "updated";
+  partnerId: number;
+  leadId: number | null;
+  matchMethod: MatchMethod;
+}
+
+export function createSignupService(repo: SignupRepository) {
+  return {
+    async ingest(payload: SignupWebhook): Promise<SignupIngestResult> {
+      const emailNorm = normalizeEmail(payload.email);
+      const phoneNorm = normalizePhoneBR(payload.phone);
+      const candidates = await repo.findCandidates(emailNorm, phoneNorm);
+      const match = pickOriginLead(
+        { emailNorm, phoneNorm, signedUpAt: payload.signed_up_at },
+        candidates,
+      );
+
+      // O cadastro pode existir sem origem; o vínculo fica explícito e auditável.
+      const partner = await repo.upsertPartner({
+        crmCode: payload.crm_code,
+        name: payload.name,
+        emailNorm,
+        phoneNorm,
+        leadId: match.leadId,
+        matchMethod: match.method,
+        signedUpAt: payload.signed_up_at,
+      });
+      return {
+        status: partner.inserted ? "created" : "updated",
+        partnerId: partner.id,
+        leadId: match.leadId,
+        matchMethod: match.method,
+      };
+    },
+  };
+}
+
+export type SignupService = ReturnType<typeof createSignupService>;
 export type { SignupWebhook };

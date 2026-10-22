@@ -2,18 +2,13 @@ import { describe, it } from "vitest";
 
 // Lista viva do que falta (aparece como "todo" no relatório de testes).
 // Ao implementar cada bloco, mova o caso para um arquivo próprio com o teste de verdade.
-describe("POST /webhooks/signups (bloco 2)", () => {
-  it.todo("cria o parceiro e liga ao lead pelo e-mail");
-  it.todo("liga pelo telefone quando o e-mail não bate");
-  it.todo("reenvio do mesmo cadastro atualiza em vez de duplicar (UPSERT por crm_code)");
-  it.todo("cadastro sem lead fica com match_method = 'none'");
-});
-
 describe("runProductionSync (bloco 3)", () => {
   it.todo("sincroniza todas as páginas e salva o cursor");
   it.todo("rodar duas vezes não duplica produção");
   it.todo("re-tenta 503 e conclui");
-  it.todo("esgotando as tentativas, grava last_error e chama o alerta do Discord");
+  it.todo(
+    "esgotando as tentativas, grava last_error e chama o alerta do Discord",
+  );
   it.todo("retoma do último cursor confirmado depois de uma falha");
 });
 

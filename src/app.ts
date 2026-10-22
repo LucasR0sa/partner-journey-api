@@ -5,6 +5,9 @@ import { errorHandler } from "./shared/http/errors.js";
 import { createLeadRepository } from "./modules/leads/lead.repository.js";
 import { createLeadService } from "./modules/leads/lead.service.js";
 import { leadRoutes } from "./modules/leads/lead.routes.js";
+import { createSignupRepository } from "./modules/signups/signup.repository.js";
+import { createSignupService } from "./modules/signups/signup.service.js";
+import { signupRoutes } from "./modules/signups/signup.routes.js";
 
 // createApp recebe as dependências por parâmetro (injeção de dependência simples):
 // nos testes passamos um banco de teste; em produção, o pool real.
@@ -28,9 +31,19 @@ export function createApp(deps: { db: Db; env: Pick<Env, "WEBHOOK_SECRET"> }) {
     res.json({ status: "ok" });
   });
 
-  app.use(leadRoutes(createLeadService(createLeadRepository(deps.db)), deps.env.WEBHOOK_SECRET));
+  app.use(
+    leadRoutes(
+      createLeadService(createLeadRepository(deps.db)),
+      deps.env.WEBHOOK_SECRET,
+    ),
+  );
 
-  // TODO(dia 1 · bloco 2): app.use(signupRoutes(...))   → POST /webhooks/signups
+  app.use(
+    signupRoutes(
+      createSignupService(createSignupRepository(deps.db)),
+      deps.env.WEBHOOK_SECRET,
+    ),
+  );
   // TODO(dia 1 · bloco 4): app.use(journeyRoutes(...))  → GET /partners/:code/journey e GET /metrics/attribution
 
   app.use((_req, res) => {
