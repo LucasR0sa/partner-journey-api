@@ -13,6 +13,7 @@
     "start": "node dist/server.js",
     "migrate": "node --env-file-if-exists=.env --import tsx src/db/migrate.ts",
     "seed": "node --env-file-if-exists=.env --import tsx tools/seed.ts",
+    "sync": "node --env-file-if-exists=.env --import tsx src/jobs/run-sync.ts",
     "fake-crm": "tsx tools/fake-crm.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
