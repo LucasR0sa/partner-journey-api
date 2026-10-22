@@ -240,12 +240,13 @@ describe("runProductionSync", () => {
     const { crm, calls } = fakeCrm(pages(), () => {
       throw failure;
     });
+    let errorAtNotification: unknown;
     const { alerter, alerts } = fakeAlerter(async () => {
       const state = await db.query(
         "SELECT last_error FROM sync_state WHERE job = $1",
         [JOB_NAME],
       );
-      expect(state.rows[0].last_error).toBe(failure.message);
+      errorAtNotification = state.rows[0].last_error;
     });
 
     await expect(
@@ -253,6 +254,7 @@ describe("runProductionSync", () => {
     ).rejects.toBe(failure);
 
     expect(calls).toEqual(Array(5).fill("pagina-2"));
+    expect(errorAtNotification).toBe(failure.message);
     expect(alerts).toEqual([
       {
         title: "Sync de produção falhou",
