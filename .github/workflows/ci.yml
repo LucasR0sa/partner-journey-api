@@ -33,8 +33,19 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Verificar formatação do matching
-        run: npm run format:check -- src/modules/signups/signup.service.ts tests/unit/match.test.ts
+      - name: Verificar formatação
+        run: >-
+          npm run format:check --
+          .github/workflows/ci.yml
+          README.md
+          src/app.ts
+          src/modules/signups/signup.repository.ts
+          src/modules/signups/signup.routes.ts
+          src/modules/signups/signup.service.ts
+          tests/integration/roadmap.todo.test.ts
+          tests/integration/signups.webhook.test.ts
+          tests/unit/match.test.ts
+          tools/seed.ts
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
