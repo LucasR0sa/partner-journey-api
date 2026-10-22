@@ -20,7 +20,7 @@ services:
     working_dir: /app
     command: sh -c "npx --yes tsx tools/fake-crm.ts"
     volumes: ["./tools:/app/tools:ro"]
-    environment: { PORT: "4000", FAIL_RATE: "0.15" }
+    environment: { PORT: "4000", FAIL_RATE: "${FAIL_RATE:-0.15}" }
     ports: ["4000:4000"]
 
   api:
