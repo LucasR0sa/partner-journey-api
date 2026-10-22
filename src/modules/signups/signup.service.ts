@@ -5,6 +5,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { SignupWebhook } from "./signup.schema.js";
 
+const MATCH_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
 export type MatchMethod = "email" | "phone" | "none";
 
 export interface LeadCandidate {
@@ -31,44 +33,42 @@ export function pickOriginLead(
   },
   candidates: LeadCandidate[],
 ): { leadId: number | null; method: MatchMethod } {
-  const ninetyDaysInMs = 90 * 24 * 60 * 60 * 1000;
-
   const validCandidates = candidates.filter((candidate) => {
     const elapsed =
       signup.signedUpAt.getTime() - candidate.occurredAt.getTime();
 
-    return elapsed > 0 && elapsed <= ninetyDaysInMs;
+    return elapsed > 0 && elapsed <= MATCH_WINDOW_MS;
   });
 
-// Coloca os candidatos do mais recente para o mais antigo.
-validCandidates.sort(
-  (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime(),
-);
-
-// Primeiro, procura pelo e-mail.
-if (signup.emailNorm) {
-  const emailMatch = validCandidates.find(
-    (candidate) => candidate.emailNorm === signup.emailNorm,
+  // Coloca os candidatos do mais recente para o mais antigo.
+  validCandidates.sort(
+    (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime(),
   );
 
-  if (emailMatch) {
-    return { leadId: emailMatch.id, method: "email" };
+  // Primeiro, procura pelo e-mail.
+  if (signup.emailNorm) {
+    const emailMatch = validCandidates.find(
+      (candidate) => candidate.emailNorm === signup.emailNorm,
+    );
+
+    if (emailMatch) {
+      return { leadId: emailMatch.id, method: "email" };
+    }
   }
-}
 
-// Se nenhum e-mail correspondeu, procura pelo telefone.
-if (signup.phoneNorm) {
-  const phoneMatch = validCandidates.find(
-    (candidate) => candidate.phoneNorm === signup.phoneNorm,
-  );
+  // Se nenhum e-mail correspondeu, procura pelo telefone.
+  if (signup.phoneNorm) {
+    const phoneMatch = validCandidates.find(
+      (candidate) => candidate.phoneNorm === signup.phoneNorm,
+    );
 
-  if (phoneMatch) {
-    return { leadId: phoneMatch.id, method: "phone" };
+    if (phoneMatch) {
+      return { leadId: phoneMatch.id, method: "phone" };
+    }
   }
-}
 
-// Nenhuma correspondência encontrada.
-return { leadId: null, method: "none" };
+  // Nenhuma correspondência encontrada.
+  return { leadId: null, method: "none" };
 }
 
 // TODO: createSignupService(repo) com ingest(payload: SignupWebhook):

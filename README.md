@@ -54,6 +54,16 @@ npm run test:unit      # só unitários, sem banco
 Os testes de integração usam Postgres de verdade, inclusive um teste de **concorrência**
 (o mesmo evento 10× em paralelo → 1 linha).
 
+## Formatação
+
+O Prettier padroniza a formatação e complementa as verificações do ESLint.
+Os scripts aceitam arquivos ou diretórios. A adoção começa pelo matching; a CI verifica os dois arquivos abaixo:
+
+```bash
+npm run format -- src/modules/signups/signup.service.ts tests/unit/match.test.ts
+npm run format:check -- src/modules/signups/signup.service.ts tests/unit/match.test.ts
+```
+
 ## Endpoints
 | Método | Rota | Status |
 |---|---|---|
