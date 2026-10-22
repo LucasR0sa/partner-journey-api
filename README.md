@@ -52,6 +52,107 @@ O seed cria os parceiros `P0001` a `P0150`, compatíveis com os códigos do fake
 50 ligados por e-mail, 50 somente por telefone e 50 sem lead de origem.
 Rodar novamente não duplica os leads nem os parceiros; os cadastros existentes são atualizados.
 
+## Sincronização
+
+Com o `.env` configurado, suba as dependências e aplique as migrations:
+
+```bash
+docker compose up -d db fake-crm
+npm run migrate
+```
+
+Mantenha `npm run dev` aberto em outro terminal. Depois de criar os parceiros com o seed,
+execute a sincronização uma vez:
+
+```bash
+npm run seed
+npm run sync
+```
+
+O comando fecha o pool ao terminar; não há agendamento contínuo neste bloco.
+Cada página confirma contratos e cursor na mesma transação. O retry tem até 5 tentativas
+por página, com backoff exponencial e jitter, somente para HTTP 5xx e 429.
+
+Exemplo observado com o seed e o fake-crm padrão (campos de processo omitidos):
+
+```json
+{
+  "level": 30,
+  "job": "production_sync",
+  "pages": 20,
+  "upserted": 1468,
+  "skippedUnknownPartner": 532,
+  "msg": "sincronização de produção concluída"
+}
+```
+
+`upserted` conta inserções **e atualizações**; contratos de parceiros não cadastrados são
+ignorados e contados separadamente. Na segunda execução, o total continuou em **1.468 linhas**:
+
+```json
+{
+  "level": 30,
+  "job": "production_sync",
+  "pages": 1,
+  "upserted": 79,
+  "skippedUnknownPartner": 21,
+  "msg": "sincronização de produção concluída"
+}
+```
+
+O cursor final ficou em `1900`, início da última página: relê-la permite encontrar contratos novos
+sem baixar todas as páginas novamente. Se o CRM só tiver uma página (ou estiver vazio), o cursor
+inicial `null` também representa a última página. Alterações em páginas anteriores ou parceiros
+cadastrados depois de seus contratos terem sido ignorados exigem uma re-sincronização completa,
+conforme a [ADR 0003](docs/adr/0003-sincronizacao-incremental.md).
+
+### Forçando uma falha sem enviar mensagem ao Discord
+
+No `.env`, deixe `DISCORD_WEBHOOK_URL=` vazio e confira que o terminal não tem essa variável
+preenchida. Assim, o alerta fica somente no log. No PowerShell, force 100% de falhas do fake-crm:
+
+```powershell
+$env:FAIL_RATE = "1"
+docker compose up -d --force-recreate fake-crm
+docker compose logs -f fake-crm
+```
+
+Aguarde a mensagem `fake-crm em http://localhost:4000 (falha 100%)` e pressione `Ctrl+C`
+para sair **dos logs**, sem parar o container. Então execute:
+
+```powershell
+npm run sync
+$LASTEXITCODE # 1, depois das 5 tentativas
+```
+
+Exemplo de alerta (campos de processo omitidos):
+
+```json
+{
+  "level": 40,
+  "title": "Sync de produção falhou",
+  "details": {
+    "job": "production_sync",
+    "cursor": "1900",
+    "erro": "CRM respondeu 503",
+    "tentativas": 5
+  },
+  "msg": "alerta (Discord desativado)"
+}
+```
+
+A falha preenche `sync_state.last_error`, preserva o cursor e não desfaz páginas já confirmadas.
+Restaure a taxa padrão de 15% e acompanhe os logs até o CRM ficar pronto novamente:
+
+```powershell
+Remove-Item Env:FAIL_RATE
+docker compose up -d --force-recreate fake-crm
+docker compose logs -f fake-crm
+```
+
+Saia dos logs com `Ctrl+C` e rode `npm run sync`. Ao concluir, `last_error` volta a `null`.
+Se tiver alterado uma URL de Discord existente para a demonstração, restaure-a depois.
+
 ## Testes
 
 ```bash
@@ -66,7 +167,7 @@ Os testes de integração usam Postgres de verdade, inclusive um teste de **conc
 
 O Prettier padroniza a formatação e complementa as verificações do ESLint.
 Os scripts aceitam arquivos ou diretórios. A CI verifica os arquivos adotados pelo formatador,
-incluindo o módulo de cadastros, seus testes, a composição da API e o seed:
+incluindo cadastros, sincronização, seus testes, a composição da API e o seed:
 
 ```bash
 npm run format -- src/modules/signups/signup.service.ts tests/unit/match.test.ts

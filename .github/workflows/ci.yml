@@ -38,10 +38,17 @@ jobs:
           npm run format:check --
           .github/workflows/ci.yml
           README.md
+          ROADMAP.md
+          docker-compose.yml
+          package.json
           src/app.ts
+          src/jobs/run-sync.ts
+          src/modules/production/sync.job.ts
+          src/modules/production/sync.repository.ts
           src/modules/signups/signup.repository.ts
           src/modules/signups/signup.routes.ts
           src/modules/signups/signup.service.ts
+          tests/integration/production.sync.test.ts
           tests/integration/roadmap.todo.test.ts
           tests/integration/signups.webhook.test.ts
           tests/unit/match.test.ts
