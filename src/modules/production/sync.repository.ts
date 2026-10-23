@@ -10,6 +10,15 @@ export interface SavedPage {
 
 export function createSyncRepository(db: Db) {
   return {
+    async resetCursor(job: string): Promise<void> {
+      // Reprocessa o histórico sem apagar contratos nem o diagnóstico da execução anterior.
+      await db.query(
+        `INSERT INTO sync_state (job, cursor) VALUES ($1, null)
+         ON CONFLICT (job) DO UPDATE SET cursor = null, updated_at = now()`,
+        [job],
+      );
+    },
+
     async getState(job: string): Promise<string | null> {
       const { rows } = await db.query<{ cursor: string | null }>(
         "SELECT cursor FROM sync_state WHERE job = $1",

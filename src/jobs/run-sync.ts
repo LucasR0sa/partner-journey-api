@@ -10,6 +10,7 @@ const db = createPool(env.DATABASE_URL);
 
 try {
   await runProductionSync({
+    full: process.argv.includes("--full"),
     db,
     crm: createCrmClient(env.CRM_BASE_URL),
     alerter: createDiscordAlerter(env.DISCORD_WEBHOOK_URL),

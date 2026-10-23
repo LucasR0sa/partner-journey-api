@@ -33,6 +33,7 @@ export async function runProductionSync(deps: {
   db: Db;
   crm: CrmClient;
   alerter: Alerter;
+  full?: boolean;
   retry?: {
     attempts?: number;
     baseMs?: number;
@@ -49,6 +50,13 @@ export async function runProductionSync(deps: {
   let attempts = 0;
 
   try {
+    if (deps.full) {
+      await repo.resetCursor(JOB_NAME);
+      logger.warn(
+        { job: JOB_NAME },
+        "cursor reiniciado para sincronização completa",
+      );
+    }
     cursor = await repo.getState(JOB_NAME);
     while (true) {
       attempts = 0;
