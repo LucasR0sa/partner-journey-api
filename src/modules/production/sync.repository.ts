@@ -27,6 +27,16 @@ export function createSyncRepository(db: Db) {
       return rows[0]?.cursor ?? null;
     },
 
+    async reconcileUnlinked(): Promise<number> {
+      // Um cadastro concorrente pode ter confirmado depois do snapshot da página.
+      const { rowCount } = await db.query(
+        `UPDATE production AS p SET partner_id = pa.id
+         FROM partners AS pa
+         WHERE p.partner_id IS NULL AND p.partner_code = pa.crm_code`,
+      );
+      return rowCount ?? 0;
+    },
+
     async savePage(
       job: string,
       contracts: CrmContract[],
@@ -46,16 +56,19 @@ export function createSyncRepository(db: Db) {
         for (const contract of contracts) {
           // O contrato existe independentemente da ordem de chegada do cadastro.
           const partnerId = partnerIds.get(contract.partner_code) ?? null;
-          await client.query(
+          const savedContract = await client.query<{
+            partner_id: number | null;
+          }>(
             `INSERT INTO production
                (crm_contract_id, partner_id, amount_cents, paid_at, partner_code)
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (crm_contract_id) DO UPDATE SET
                partner_code = EXCLUDED.partner_code,
-               partner_id = EXCLUDED.partner_id,
+               partner_id = COALESCE(EXCLUDED.partner_id, production.partner_id),
                amount_cents = EXCLUDED.amount_cents,
                paid_at = EXCLUDED.paid_at,
-               synced_at = now()`,
+               synced_at = now()
+             RETURNING partner_id`,
             [
               contract.contract_id,
               partnerId,
@@ -65,7 +78,8 @@ export function createSyncRepository(db: Db) {
             ],
           );
           result.upserted++;
-          if (partnerId === null) result.unlinked++;
+          // Conta o estado gravado: o COALESCE pode ter preservado um vínculo concorrente.
+          if (savedContract.rows[0]?.partner_id === null) result.unlinked++;
         }
 
         // Avançar o cursor só é seguro se todos os contratos da página forem confirmados.

@@ -116,7 +116,7 @@ describe("runProductionSync", () => {
     try {
       await expect(
         runProductionSync({ db, crm, alerter, retry: fastRetry }),
-      ).resolves.toEqual({ pages: 3, upserted: 7, unlinked: 1 });
+      ).resolves.toEqual({ pages: 3, upserted: 7, unlinked: 1, relinked: 0 });
       expect(await createSyncRepository(db).getState(JOB_NAME)).toBe(
         "pagina-3",
       );
@@ -171,7 +171,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 3, upserted: 6, unlinked: 0 });
+    ).resolves.toEqual({ pages: 3, upserted: 6, unlinked: 0, relinked: 0 });
 
     expect(calls).toEqual([null, "pagina-2", "pagina-3"]);
     expect(
@@ -211,7 +211,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0, relinked: 0 });
 
     expect(calls).toEqual(["pagina-3"]);
     expect(
@@ -247,7 +247,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 1 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 1, relinked: 0 });
     expect(
       (
         await db.query(
@@ -290,7 +290,7 @@ describe("runProductionSync", () => {
           },
         },
       }),
-    ).resolves.toEqual({ pages: 1, upserted: 1, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 1, unlinked: 0, relinked: 0 });
 
     expect(calls).toEqual([null, null, null]);
     expect(delays).toHaveLength(2);
@@ -385,7 +385,7 @@ describe("runProductionSync", () => {
     calls.length = 0;
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0, relinked: 0 });
 
     expect(calls).toEqual(["pagina-3"]);
     expect(
@@ -486,7 +486,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0, relinked: 0 });
     expect(calls).toEqual([null, null]);
   });
 
@@ -515,7 +515,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 3, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 3, unlinked: 0, relinked: 0 });
     expect(calls).toEqual(["pagina-3"]);
     expect(
       (await db.query("SELECT count(*)::int AS n FROM production")).rows[0].n,
@@ -528,7 +528,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0, relinked: 0 });
     await runProductionSync({ db, crm, alerter, retry: fastRetry });
     expect(calls).toEqual([null, null]);
     expect(

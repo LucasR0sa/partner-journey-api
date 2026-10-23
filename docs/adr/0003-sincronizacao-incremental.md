@@ -16,13 +16,26 @@ APIs reais). Baixar tudo a cada execução é lento e caro; parar no primeiro er
   `production.partner_code` é obrigatório e preserva o código recebido do CRM;
   `partner_id` pode ser `null` até o parceiro existir. O webhook faz o UPSERT do parceiro
   e o UPDATE dos contratos sem vínculo do mesmo código na mesma transação.
-  O sync conta `upserted` e `unlinked`; o log do cadastro registra `linkedContracts`.
+  O sync conta `upserted`, `unlinked` e `relinked`; o log do cadastro registra `linkedContracts`.
 - **Recuperação explícita** com `npm run sync:full`: reinicia somente o cursor e reprocessa
   as páginas com UPSERT idempotente, inclusive para recuperar contratos que versões anteriores ignoraram.
 - **Retry com backoff exponencial e jitter** (`withRetry`) só para erros temporários (5xx, 429).
   Erro 4xx não é re-tentado: é bug ou credencial, e insistir não resolve.
 - **Alerta no Discord** quando as tentativas se esgotam, com job, cursor e erro.
   O alerta nunca derruba o job (falha do Discord só vai para o log).
+
+## Corrida sync × cadastro
+
+No [READ COMMITTED](https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED),
+o UPDATE do cadastro não enxerga um contrato ainda não confirmado pela sync; se o cadastro
+confirmar primeiro, o contrato pode terminar sem vínculo mesmo com o parceiro já existente.
+Após confirmar todas as páginas e antes de marcar sucesso, `reconcileUnlinked()` atualiza
+as pendências de qualquer página por `partner_code = crm_code`, com o predicado do índice
+parcial `partner_id IS NULL`, e registra a quantidade em `relinked`.
+O UPSERT usa `COALESCE(EXCLUDED.partner_id, production.partner_id)` para uma leitura
+desatualizada não desfazer um vínculo já confirmado. Se um cadastro ainda estiver aberto
+durante a reconciliação, a próxima execução volta a avaliar todas as pendências, garantindo
+consistência eventual sem reler páginas antigas do CRM nem exigir uma sync completa.
 
 ## Consequências
 
