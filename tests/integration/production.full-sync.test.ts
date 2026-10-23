@@ -85,6 +85,7 @@ it("npm run sync:full recupera contratos antes ignorados e não duplica os exist
             pages: 2,
             upserted: 3,
             unlinked: 1,
+            relinked: 0,
           }),
         ]),
       );
