@@ -80,31 +80,58 @@ Exemplo observado com o seed e o fake-crm padrão (campos de processo omitidos):
   "level": 30,
   "job": "production_sync",
   "pages": 20,
-  "upserted": 1468,
-  "skippedUnknownPartner": 532,
+  "upserted": 2000,
+  "unlinked": 532,
   "msg": "sincronização de produção concluída"
 }
 ```
 
-`upserted` conta inserções **e atualizações**; contratos de parceiros não cadastrados são
-ignorados e contados separadamente. Na segunda execução, o total continuou em **1.468 linhas**:
+`upserted` conta inserções **e atualizações** de todos os contratos. `unlinked` conta, nessa execução,
+os contratos gravados sem vínculo: `partner_code` é preservado e `partner_id` fica `null`.
+Quando o webhook cadastra o parceiro, o UPSERT do cadastro e o vínculo da produção pendente
+acontecem na mesma transação. O log do cadastro inclui `linkedContracts`, a quantidade vinculada;
+o reenvio não conta novamente contratos já vinculados. Nenhum contrato é descartado.
+
+Na segunda execução, o total continuou em **2.000 linhas**, sendo 532 ainda sem cadastro:
 
 ```json
 {
   "level": 30,
   "job": "production_sync",
   "pages": 1,
-  "upserted": 79,
-  "skippedUnknownPartner": 21,
+  "upserted": 100,
+  "unlinked": 21,
   "msg": "sincronização de produção concluída"
 }
 ```
 
 O cursor final ficou em `1900`, início da última página: relê-la permite encontrar contratos novos
 sem baixar todas as páginas novamente. Se o CRM só tiver uma página (ou estiver vazio), o cursor
-inicial `null` também representa a última página. Alterações em páginas anteriores ou parceiros
-cadastrados depois de seus contratos terem sido ignorados exigem uma re-sincronização completa,
-conforme a [ADR 0003](docs/adr/0003-sincronizacao-incremental.md).
+inicial `null` também representa a última página. O vínculo tardio não consulta o CRM nem altera
+o cursor: ele usa os contratos que já estão no PostgreSQL, inclusive os de páginas antigas.
+
+### Recuperando contratos descartados na versão anterior
+
+Use `sync:full` após atualizar uma base que ignorava contratos sem parceiro ou quando precisar
+recapturar alterações do CRM em páginas anteriores. Com o banco e o fake-crm no ar:
+
+```bash
+npm run migrate
+npm run sync:full
+```
+
+A migration **002** preenche `partner_code` nas linhas existentes antes de aplicar `NOT NULL`
+e permite `partner_id` nulo. A migration 001, já aplicada, não é modificada.
+O comando reinicia somente o cursor de `production_sync` e reutiliza a sincronização normal;
+não apaga contratos. O `ON CONFLICT` permite repetir a recuperação sem duplicar produção.
+Não precisa da API HTTP rodando: o comando acessa diretamente o CRM e o banco.
+
+Na validação de uma base antiga, a migration preservou as 1.468 linhas existentes e a recuperação
+trouxe os 532 contratos descartados, totalizando 2.000. Os 532 ficam disponíveis para vínculo
+quando seus parceiros se cadastrarem. Depois, volte a usar `npm run sync` no fluxo incremental.
+Se a recuperação falhar, as páginas confirmadas permanecem gravadas e `npm run sync` retoma
+do cursor salvo. Execute sem outra sincronização em andamento; lock entre jobs fica fora deste PR.
+Decisão: [ADR 0003](docs/adr/0003-sincronizacao-incremental.md).
 
 ### Forçando uma falha sem enviar mensagem ao Discord
 
