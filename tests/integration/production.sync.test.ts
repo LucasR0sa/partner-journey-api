@@ -1,4 +1,13 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { createApp } from "../../src/app.js";
 import type { Db } from "../../src/db/pool.js";
 import {
   CrmHttpError,
@@ -14,7 +23,9 @@ import {
   type CrmContract,
 } from "../../src/modules/production/sync.repository.js";
 import type { Alerter } from "../../src/shared/alerts/discord.js";
+import { logger } from "../../src/shared/logger.js";
 import { resetDb, setupTestDb } from "../helpers/db.js";
+import { postSigned } from "../helpers/webhook.js";
 
 let db: Db;
 const noSleep = async () => {};
@@ -90,6 +101,70 @@ function fakeAlerter(onNotify?: () => Promise<void>) {
 }
 
 describe("runProductionSync", () => {
+  it("vincula produção de uma página antiga no cadastro, sem buscar o CRM novamente", async () => {
+    const data = pages();
+    data.início!.data.push(
+      contract("CT-before-signup", { partner_code: "P0003" }),
+    );
+    const { crm, calls } = fakeCrm(data);
+    const { alerter } = fakeAlerter();
+    const app = createApp({
+      db,
+      env: { WEBHOOK_SECRET: process.env.WEBHOOK_SECRET! },
+    });
+    const info = vi.spyOn(logger, "info");
+    try {
+      await expect(
+        runProductionSync({ db, crm, alerter, retry: fastRetry }),
+      ).resolves.toEqual({ pages: 3, upserted: 7, unlinked: 1 });
+      expect(await createSyncRepository(db).getState(JOB_NAME)).toBe(
+        "pagina-3",
+      );
+      expect(
+        (
+          await db.query(
+            "SELECT partner_id FROM production WHERE crm_contract_id = 'CT-before-signup'",
+          )
+        ).rows,
+      ).toEqual([{ partner_id: null }]);
+
+      const response = await postSigned(app, "/webhooks/signups", {
+        event_id: "late-signup",
+        crm_code: "P0003",
+        name: "Parceiro tardio",
+        signed_up_at: "2026-05-02T12:00:00Z",
+      });
+      expect(response.status).toBe(201);
+      expect(
+        (
+          await db.query(`SELECT p.partner_code, p.partner_id, partner.crm_code
+        FROM production p JOIN partners partner ON partner.id = p.partner_id
+        WHERE p.crm_contract_id = 'CT-before-signup'`)
+        ).rows,
+      ).toEqual([
+        {
+          partner_code: "P0003",
+          partner_id: response.body.id,
+          crm_code: "P0003",
+        },
+      ]);
+      expect(calls).toEqual([null, "pagina-2", "pagina-3"]);
+      expect(await createSyncRepository(db).getState(JOB_NAME)).toBe(
+        "pagina-3",
+      );
+      expect(info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          crmCode: "P0003",
+          linkedContracts: 1,
+          status: "created",
+        }),
+        "cadastro processado e produção pendente vinculada",
+      );
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   it("sincroniza todas as páginas e mantém o cursor da última página", async () => {
     const { crm, calls } = fakeCrm(pages());
     const { alerter, alerts } = fakeAlerter();

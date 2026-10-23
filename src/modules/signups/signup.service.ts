@@ -4,6 +4,7 @@
 // Use o módulo de leads como modelo (schema → service → repository → routes).
 // ─────────────────────────────────────────────────────────────────────────────
 import { normalizeEmail, normalizePhoneBR } from "../../shared/normalize.js";
+import { logger } from "../../shared/logger.js";
 import type { SignupRepository } from "./signup.repository.js";
 import type { SignupWebhook } from "./signup.schema.js";
 
@@ -78,6 +79,7 @@ export interface SignupIngestResult {
   partnerId: number;
   leadId: number | null;
   matchMethod: MatchMethod;
+  linkedContracts: number;
 }
 
 export function createSignupService(repo: SignupRepository) {
@@ -101,12 +103,18 @@ export function createSignupService(repo: SignupRepository) {
         matchMethod: match.method,
         signedUpAt: payload.signed_up_at,
       });
-      return {
+      const result: SignupIngestResult = {
         status: partner.inserted ? "created" : "updated",
         partnerId: partner.id,
         leadId: match.leadId,
         matchMethod: match.method,
+        linkedContracts: partner.linkedContracts,
       };
+      logger.info(
+        { crmCode: payload.crm_code, ...result },
+        "cadastro processado e produção pendente vinculada",
+      );
+      return result;
     },
   };
 }
