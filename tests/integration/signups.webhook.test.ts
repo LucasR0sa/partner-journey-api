@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/app.js";
 import type { Db } from "../../src/db/pool.js";
+import { createSignupRepository } from "../../src/modules/signups/signup.repository.js";
 import { resetDb, setupTestDb } from "../helpers/db.js";
 import { postSigned } from "../helpers/webhook.js";
 
@@ -42,6 +43,92 @@ async function createLead(
 }
 
 describe("POST /webhooks/signups", () => {
+  it("retorna a quantidade vinculada e não vincula produção de outro código", async () => {
+    await db.query(`INSERT INTO production (crm_contract_id, partner_code, amount_cents, paid_at)
+      VALUES ('CT-1', 'P0001', 10000, '2026-05-01'),
+             ('CT-other', 'P0002', 20000, '2026-05-01')`);
+    const repo = createSignupRepository(db);
+    const partner = {
+      crmCode: "P0001",
+      name: "Ana",
+      emailNorm: null,
+      phoneNorm: null,
+      leadId: null,
+      matchMethod: "none" as const,
+      signedUpAt: new Date("2026-05-02"),
+    };
+    const first = await repo.upsertPartner(partner);
+    expect(first).toEqual({
+      id: expect.any(Number),
+      inserted: true,
+      linkedContracts: 1,
+    });
+    expect(await repo.upsertPartner(partner)).toEqual({
+      ...first,
+      inserted: false,
+      linkedContracts: 0,
+    });
+    expect(
+      (
+        await db.query(
+          "SELECT partner_id FROM production WHERE crm_contract_id = 'CT-other'",
+        )
+      ).rows,
+    ).toEqual([{ partner_id: null }]);
+
+    await db.query(`INSERT INTO production (crm_contract_id, partner_code, amount_cents, paid_at)
+      VALUES ('CT-late', 'P0001', 30000, '2026-05-03')`);
+    expect(
+      await repo.upsertPartner({ ...partner, name: "Ana atualizada" }),
+    ).toEqual({ ...first, inserted: false, linkedContracts: 1 });
+    expect(
+      (
+        await db.query(
+          "SELECT partner_id FROM production WHERE partner_code = 'P0001'",
+        )
+      ).rows,
+    ).toEqual([{ partner_id: first.id }, { partner_id: first.id }]);
+  });
+
+  it.each([false, true])(
+    "desfaz cadastro e vínculo se o UPDATE falhar (parceiro existente: %s)",
+    async (existing) => {
+      if (existing)
+        expect(
+          (await postSigned(app, "/webhooks/signups", payload())).status,
+        ).toBe(201);
+      await db.query(`INSERT INTO production (crm_contract_id, partner_code, amount_cents, paid_at)
+      VALUES ('CT-pending', 'P0001', 10000, '2026-05-01')`);
+      // Provoca uma falha real no UPDATE para verificar o rollback do mesmo client.
+      await db.query(
+        "ALTER TABLE production ADD CONSTRAINT production_test_pending CHECK (partner_id IS NULL) NOT VALID",
+      );
+      try {
+        const response = await postSigned(
+          app,
+          "/webhooks/signups",
+          payload({ name: "Nome que deve ser desfeito" }),
+        );
+        expect(response.status).toBe(500);
+        expect(
+          (await db.query("SELECT name FROM partners WHERE crm_code = 'P0001'"))
+            .rows,
+        ).toEqual(existing ? [{ name: "Ana Silva" }] : []);
+        expect(
+          (
+            await db.query(
+              "SELECT partner_id FROM production WHERE crm_contract_id = 'CT-pending'",
+            )
+          ).rows,
+        ).toEqual([{ partner_id: null }]);
+      } finally {
+        await db.query(
+          "ALTER TABLE production DROP CONSTRAINT production_test_pending",
+        );
+      }
+    },
+  );
+
   it("cria o parceiro e liga ao lead pelo e-mail", async () => {
     const leadId = await createLead();
     const res = await postSigned(app, "/webhooks/signups", payload());

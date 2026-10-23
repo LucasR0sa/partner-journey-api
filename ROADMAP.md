@@ -31,7 +31,7 @@ e as funções de apoio (`normalize`, `hmac`, `withRetry`, alerta do Discord). V
 
 - [x] `runProductionSync` seguindo o passo a passo do arquivo
 - [x] Rodar contra o `fake-crm` (ele falha 15% das vezes: o retry tem que segurar)
-- [x] 13 testes de integração com Postgres real e `CrmClient` falso, substituindo os `it.todo` do bloco 3
+- [x] Testes de integração com Postgres real: sync, vínculo tardio, migration e recuperação completa
 - [x] Script `npm run sync` com execução única e fechamento do pool; agendamento contínuo fora do escopo
 - [x] Forçar falha (`FAIL_RATE=1`) e verificar o alerta no log com `DISCORD_WEBHOOK_URL` vazio
 

@@ -18,7 +18,7 @@ export interface SignupRepository {
   ): Promise<LeadCandidate[]>;
   upsertPartner(
     partner: NewPartner,
-  ): Promise<{ id: number; inserted: boolean }>;
+  ): Promise<{ id: number; inserted: boolean; linkedContracts: number }>;
 }
 
 export function createSignupRepository(db: Db): SignupRepository {
@@ -47,9 +47,12 @@ export function createSignupRepository(db: Db): SignupRepository {
     },
 
     async upsertPartner(partner) {
-      // A chave do CRM resolve reenvios e concorrência sem um SELECT antes do INSERT.
-      const { rows } = await db.query<{ id: number; inserted: boolean }>(
-        `INSERT INTO partners
+      const client = await db.connect();
+      try {
+        await client.query("BEGIN");
+        // A chave do CRM resolve reenvios e concorrência sem um SELECT antes do INSERT.
+        const { rows } = await client.query<{ id: number; inserted: boolean }>(
+          `INSERT INTO partners
            (crm_code, name, email_norm, phone_norm, lead_id, match_method, signed_up_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (crm_code) DO UPDATE SET
@@ -60,19 +63,32 @@ export function createSignupRepository(db: Db): SignupRepository {
            match_method = EXCLUDED.match_method,
            signed_up_at = EXCLUDED.signed_up_at
          RETURNING id, (xmax = 0) AS inserted`,
-        [
-          partner.crmCode,
-          partner.name,
-          partner.emailNorm,
-          partner.phoneNorm,
-          partner.leadId,
-          partner.matchMethod,
-          partner.signedUpAt,
-        ],
-      );
-      const result = rows[0];
-      if (!result) throw new Error("UPSERT não retornou o parceiro");
-      return result;
+          [
+            partner.crmCode,
+            partner.name,
+            partner.emailNorm,
+            partner.phoneNorm,
+            partner.leadId,
+            partner.matchMethod,
+            partner.signedUpAt,
+          ],
+        );
+        const result = rows[0];
+        if (!result) throw new Error("UPSERT não retornou o parceiro");
+        // Cadastro e vínculo confirmam juntos: a produção pode ter chegado antes.
+        const linked = await client.query(
+          `UPDATE production SET partner_id = $1
+         WHERE partner_code = $2 AND partner_id IS NULL`,
+          [result.id, partner.crmCode],
+        );
+        await client.query("COMMIT");
+        return { ...result, linkedContracts: linked.rowCount ?? 0 };
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      } finally {
+        client.release();
+      }
     },
   };
 }

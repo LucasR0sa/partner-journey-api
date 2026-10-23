@@ -5,11 +5,20 @@ export type CrmContract = CrmPage["data"][number];
 
 export interface SavedPage {
   upserted: number;
-  skippedUnknownPartner: number;
+  unlinked: number;
 }
 
 export function createSyncRepository(db: Db) {
   return {
+    async resetCursor(job: string): Promise<void> {
+      // Reprocessa o histórico sem apagar contratos nem o diagnóstico da execução anterior.
+      await db.query(
+        `INSERT INTO sync_state (job, cursor) VALUES ($1, null)
+         ON CONFLICT (job) DO UPDATE SET cursor = null, updated_at = now()`,
+        [job],
+      );
+    },
+
     async getState(job: string): Promise<string | null> {
       const { rows } = await db.query<{ cursor: string | null }>(
         "SELECT cursor FROM sync_state WHERE job = $1",
@@ -32,19 +41,17 @@ export function createSyncRepository(db: Db) {
           [codes],
         );
         const partnerIds = new Map(rows.map((row) => [row.crm_code, row.id]));
-        const result: SavedPage = { upserted: 0, skippedUnknownPartner: 0 };
+        const result: SavedPage = { upserted: 0, unlinked: 0 };
 
         for (const contract of contracts) {
-          const partnerId = partnerIds.get(contract.partner_code);
-          if (partnerId === undefined) {
-            result.skippedUnknownPartner++;
-            continue;
-          }
+          // O contrato existe independentemente da ordem de chegada do cadastro.
+          const partnerId = partnerIds.get(contract.partner_code) ?? null;
           await client.query(
             `INSERT INTO production
-               (crm_contract_id, partner_id, amount_cents, paid_at)
-             VALUES ($1, $2, $3, $4)
+               (crm_contract_id, partner_id, amount_cents, paid_at, partner_code)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (crm_contract_id) DO UPDATE SET
+               partner_code = EXCLUDED.partner_code,
                partner_id = EXCLUDED.partner_id,
                amount_cents = EXCLUDED.amount_cents,
                paid_at = EXCLUDED.paid_at,
@@ -54,9 +61,11 @@ export function createSyncRepository(db: Db) {
               partnerId,
               contract.amount_cents,
               contract.paid_at,
+              contract.partner_code,
             ],
           );
           result.upserted++;
+          if (partnerId === null) result.unlinked++;
         }
 
         // Avançar o cursor só é seguro se todos os contratos da página forem confirmados.
