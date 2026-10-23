@@ -14,7 +14,7 @@ export const JOB_NAME = "production_sync";
 export interface SyncResult {
   pages: number;
   upserted: number;
-  skippedUnknownPartner: number;
+  unlinked: number;
 }
 
 /**
@@ -23,7 +23,7 @@ export interface SyncResult {
  *  2. Buscar páginas no CRM com withRetry (src/shared/retry.ts) — só re-tentar se err.retryable.
  *  3. Para cada página, em UMA transação:
  *       - UPSERT em production (ON CONFLICT (crm_contract_id) DO UPDATE)
- *       - ignorar (e contar) contratos de parceiro que ainda não existe em partners
+ *       - preservar contratos sem cadastro com partner_code e partner_id null
  *       - salvar o próximo cursor (ou manter o atual na última página)
  *     Assim, se cair no meio, recomeça da última página confirmada — sem duplicar.
  *  4. Ao terminar: last_success_at = now(), last_error = null.
@@ -43,7 +43,7 @@ export async function runProductionSync(deps: {
   const result: SyncResult = {
     pages: 0,
     upserted: 0,
-    skippedUnknownPartner: 0,
+    unlinked: 0,
   };
   let cursor: string | null = null;
   let attempts = 0;
@@ -79,7 +79,7 @@ export async function runProductionSync(deps: {
       );
       result.pages++;
       result.upserted += saved.upserted;
-      result.skippedUnknownPartner += saved.skippedUnknownPartner;
+      result.unlinked += saved.unlinked;
       if (page.next_cursor === null) break;
       cursor = page.next_cursor;
     }

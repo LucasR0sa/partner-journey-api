@@ -96,7 +96,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 3, upserted: 6, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 3, upserted: 6, unlinked: 0 });
 
     expect(calls).toEqual([null, "pagina-2", "pagina-3"]);
     expect(
@@ -136,7 +136,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 2, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0 });
 
     expect(calls).toEqual(["pagina-3"]);
     expect(
@@ -158,7 +158,7 @@ describe("runProductionSync", () => {
     expect(await createSyncRepository(db).getState(JOB_NAME)).toBe("pagina-3");
   });
 
-  it("ignora e conta contratos de parceiros inexistentes", async () => {
+  it("grava e conta contratos sem parceiro, preservando o código do CRM", async () => {
     const { crm } = fakeCrm({
       início: {
         data: [
@@ -172,10 +172,25 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 1, skippedUnknownPartner: 1 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 1 });
     expect(
-      (await db.query("SELECT crm_contract_id FROM production")).rows,
-    ).toEqual([{ crm_contract_id: "CT-1" }]);
+      (
+        await db.query(
+          "SELECT crm_contract_id, partner_code, partner_id FROM production ORDER BY crm_contract_id",
+        )
+      ).rows,
+    ).toEqual([
+      {
+        crm_contract_id: "CT-1",
+        partner_code: "P0001",
+        partner_id: expect.any(Number),
+      },
+      {
+        crm_contract_id: "CT-unknown",
+        partner_code: "P0999",
+        partner_id: null,
+      },
+    ]);
   });
 
   it("re-tenta 503 duas vezes e conclui sem esperar de verdade", async () => {
@@ -200,7 +215,7 @@ describe("runProductionSync", () => {
           },
         },
       }),
-    ).resolves.toEqual({ pages: 1, upserted: 1, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 1, unlinked: 0 });
 
     expect(calls).toEqual([null, null, null]);
     expect(delays).toHaveLength(2);
@@ -295,7 +310,7 @@ describe("runProductionSync", () => {
     calls.length = 0;
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 2, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 2, unlinked: 0 });
 
     expect(calls).toEqual(["pagina-3"]);
     expect(
@@ -396,7 +411,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 0, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0 });
     expect(calls).toEqual([null, null]);
   });
 
@@ -425,7 +440,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 3, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 3, unlinked: 0 });
     expect(calls).toEqual(["pagina-3"]);
     expect(
       (await db.query("SELECT count(*)::int AS n FROM production")).rows[0].n,
@@ -438,7 +453,7 @@ describe("runProductionSync", () => {
 
     await expect(
       runProductionSync({ db, crm, alerter, retry: fastRetry }),
-    ).resolves.toEqual({ pages: 1, upserted: 0, skippedUnknownPartner: 0 });
+    ).resolves.toEqual({ pages: 1, upserted: 0, unlinked: 0 });
     await runProductionSync({ db, crm, alerter, retry: fastRetry });
     expect(calls).toEqual([null, null]);
     expect(
