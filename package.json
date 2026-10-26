@@ -1,6 +1,6 @@
 {
   "name": "partner-journey-api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "API que acompanha cada parceiro do lead ao resultado: webhooks idempotentes, matching lead → cadastro e sincronização de produção com retry e alertas.",
   "type": "module",
   "private": true,
