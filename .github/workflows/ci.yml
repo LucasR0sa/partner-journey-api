@@ -43,6 +43,10 @@ jobs:
           docs/adr/0003-sincronizacao-incremental.md
           package.json
           src/app.ts
+          src/modules/journey/journey.repository.ts
+          src/modules/journey/journey.schema.ts
+          src/modules/journey/journey.service.ts
+          src/modules/journey/journey.routes.ts
           src/jobs/run-sync.ts
           src/modules/production/sync.job.ts
           src/modules/production/sync.repository.ts
@@ -54,7 +58,7 @@ jobs:
           tests/integration/production.migration.test.ts
           tests/integration/production.link-race.test.ts
           tests/integration/production.transfer.test.ts
-          tests/integration/roadmap.todo.test.ts
+          tests/integration/journey.reads.test.ts
           tests/integration/signups.webhook.test.ts
           tests/unit/match.test.ts
           tools/seed.ts

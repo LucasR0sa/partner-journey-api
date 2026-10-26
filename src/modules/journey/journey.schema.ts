@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const DAY_MS = 86_400_000;
 const calendarDate = z.iso.date().refine((date) => !date.startsWith("0000-"), {
-  message: "o calendário do PostgreSQL começa no ano 0001",
+  message: "use um ano entre 0001 e 9999",
 });
 
 export const partnerCodeSchema = z.string().min(1).max(50);
