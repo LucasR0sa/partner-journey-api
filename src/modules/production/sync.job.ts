@@ -1,7 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// DIA 1 · BLOCO 3 — Sincronização incremental da produção
-// Leia antes: docs/adr/0003-sincronizacao-incremental.md
-// ─────────────────────────────────────────────────────────────────────────────
+// Cursor e contratos são confirmados juntos para permitir retomada sem perda (ADR 0003).
 import type { Db } from "../../db/pool.js";
 import type { Alerter } from "../../shared/alerts/discord.js";
 import { logger } from "../../shared/logger.js";
@@ -19,7 +16,7 @@ export interface SyncResult {
 }
 
 /**
- * Passo a passo esperado:
+ * Fluxo da sincronização:
  *  1. Ler o cursor salvo em sync_state (job = JOB_NAME).
  *  2. Buscar páginas no CRM com withRetry (src/shared/retry.ts) — só re-tentar se err.retryable.
  *  3. Para cada página, em UMA transação:

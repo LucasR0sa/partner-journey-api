@@ -1,8 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// DIA 1 · BLOCO 2 — Cadastro do parceiro + matching com o lead de origem
-// Leia antes: docs/adr/0002-matching-lead-cadastro.md
-// Use o módulo de leads como modelo (schema → service → repository → routes).
-// ─────────────────────────────────────────────────────────────────────────────
+// As regras de matching ficam na função pura para serem auditadas e testadas sem banco (ADR 0002).
 import { normalizeEmail, normalizePhoneBR } from "../../shared/normalize.js";
 import { logger } from "../../shared/logger.js";
 import type { SignupRepository } from "./signup.repository.js";

@@ -1,0 +1,33 @@
+# VS Code: instale REST Client (Huachao Mao) e use "Send Request".
+# Inicie a API e execute npm run seed + npm run sync para as leituras de demonstração.
+# Somente dados locais fictícios; as leituras desta versão ainda não exigem JWT.
+@baseUrl = http://localhost:3000
+@partnerCode = P0001
+@from = 2026-04-01
+@to = 2026-10-01
+
+# Este JSON é o corpo exato usado na assinatura e na requisição, sem quebra de linha.
+@leadBody = {"event_id":"rest-client-lead-1","occurred_at":"2026-10-01T12:00:00Z","source":"meta_ads","campaign":"demo-rest-client","contact":{"email":"ana@exemplo.com","phone":"(48) 99999-0000"}}
+# Gere o HMAC com o WEBHOOK_SECRET do seu .env (não cole o segredo neste arquivo).
+# Rode a linha abaixo na raiz, em PowerShell ou Bash:
+# node --env-file=.env --input-type=module -e "import fs from 'node:fs'; import crypto from 'node:crypto'; const body = fs.readFileSync('requests.http','utf8').split(/\r?\n/).find(line => line.startsWith('@leadBody = ')).slice('@leadBody = '.length); console.log(crypto.createHmac('sha256',process.env.WEBHOOK_SECRET).update(body).digest('hex'))"
+# Copie apenas o hexadecimal gerado para leadSignature. Não altere leadBody depois de assinar.
+# Não commite assinaturas reais; o valor abaixo é apenas um marcador local.
+@leadSignature = cole-aqui-o-hex-gerado-no-terminal
+
+### Health — 200 {"status":"ok"}
+GET {{baseUrl}}/health
+
+### Jornada — 200 após seed, ou 404 se o código não existe
+GET {{baseUrl}}/partners/{{partnerCode}}/journey
+
+### Atribuição — datas inclusivas no calendário de São Paulo
+GET {{baseUrl}}/metrics/attribution?from={{from}}&to={{to}}
+
+### Lead assinado — 201 na primeira entrega, 200 no reenvio idêntico
+# Sem substituir leadSignature por uma assinatura válida, a resposta esperada é 401.
+POST {{baseUrl}}/webhooks/leads
+Content-Type: application/json
+x-signature: sha256={{leadSignature}}
+
+{{leadBody}}

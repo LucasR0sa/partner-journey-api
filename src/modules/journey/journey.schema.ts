@@ -7,7 +7,7 @@ const calendarDate = z.iso.date().refine((date) => !date.startsWith("0000-"), {
 
 export const partnerCodeSchema = z.string().min(1).max(50);
 
-// UTC evita variação por horário de verão; o limite conta as duas datas do período.
+// Datas do negócio usam São Paulo no SQL; UTC aqui só conta dias de calendário, incluindo as pontas.
 export const attributionQuerySchema = z
   .object({ from: calendarDate, to: calendarDate })
   .refine(({ from, to }) => from <= to, {

@@ -39,6 +39,7 @@ jobs:
           .github/workflows/ci.yml
           README.md
           ROADMAP.md
+          CHANGELOG.md
           docker-compose.yml
           docs/adr/0003-sincronizacao-incremental.md
           package.json
