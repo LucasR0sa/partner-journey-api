@@ -1,6 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// DIA 1 · BLOCO 4 — Leitura: jornada de um parceiro e atribuição por canal
-// ─────────────────────────────────────────────────────────────────────────────
+// Leituras agregadas mantêm uma linha por parceiro ou canal, sem inflar as métricas.
 import type { Db } from "../../db/pool.js";
 
 export interface PartnerJourney {
