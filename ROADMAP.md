@@ -1,62 +1,66 @@
-# Roteiro de 1 dia (≈ 8h)
+# Evolução do Partner Journey API
 
-O esqueleto já vem com: Docker, CI, migrations, testes, o **fluxo completo de leads** (para servir de modelo)
-e as funções de apoio (`normalize`, `hmac`, `withRetry`, alerta do Discord). Você implementa o resto.
+As etapas abaixo registram o que foi entregue e as melhorias futuras. Cada etapa funcional
+tem testes e revisão por PR; publicação da versão acontece somente depois do merge.
 
-> Regra do dia: **teste primeiro**. Cada bloco termina com `npm test` verde e um commit.
+## Bloco 0 — Preparação
 
-## Bloco 0 — Preparar (30 min)
+- [x] Docker Compose com PostgreSQL, banco isolado de testes e CRM fictício
+- [x] Instalação reproduzível, migrations e CI no GitHub Actions
+- [x] Arquitetura em camadas e três ADRs documentadas
 
-- [ ] `cp .env.example .env` e `docker compose up -d db fake-crm`
-- [ ] `npm ci && npm run migrate && npm test` (tudo verde, 4 skipped e 12 todo)
-- [ ] Ler `docs/architecture.md` e os 3 ADRs
-- [ ] Ler o módulo `src/modules/leads` de ponta a ponta: é o padrão a copiar
+## Bloco 1 — Webhook de leads
 
-## Bloco 1 — Entender o fluxo pronto (45 min)
+- [x] HMAC sobre o corpo bruto, validação e normalização
+- [x] Idempotência com constraint e teste de dez entregas concorrentes
+- [x] Seed assinado e rejeição de assinatura inválida sem gravar dados
 
-- [ ] `npm run dev` e `npm run seed` (rodar 2x e ver que não duplica)
-- [ ] Mandar um webhook com assinatura errada e ver o 401
-- [ ] Explicar em voz alta, sem olhar: por que `ON CONFLICT` e não um `SELECT` antes do `INSERT`?
+## Bloco 2 — Cadastro + matching · ADR 0002
 
-## Bloco 2 — Cadastro + matching (2h) · ADR 0002
-
-- [x] Implementar `pickOriginLead` e tirar o `.skip` de `tests/unit/match.test.ts`
+- [x] `pickOriginLead` com prioridade por e-mail, last touch e limites de 90 dias
 - [x] `signup.repository.ts`: buscar candidatos (mesmo e-mail **ou** telefone) e UPSERT em `partners`
-- [x] `createSignupService` + `signup.routes.ts` (copie a estrutura de leads)
+- [x] `createSignupService` + `signup.routes.ts`, seguindo a estrutura de leads
 - [x] Registrar a rota em `src/app.ts`
-- [x] Testes de integração do webhook de cadastros, substituindo os `it.todo` do bloco 2
+- [x] Testes de integração do webhook de cadastros e casos de borda do matching
 - [x] Atualizar o `tools/seed.ts` para mandar cadastros
 
-## Bloco 3 — Sincronização da produção (2h) · ADR 0003
+## Bloco 3 — Sincronização da produção · ADR 0003
 
-- [x] `runProductionSync` seguindo o passo a passo do arquivo
+- [x] Sync incremental com cursor e transação por página
 - [x] Rodar contra o `fake-crm` (ele falha 15% das vezes: o retry tem que segurar)
 - [x] Testes de integração com Postgres real: sync, vínculo tardio, migration e recuperação completa
 - [x] Script `npm run sync` com execução única e fechamento do pool; agendamento contínuo fora do escopo
 - [x] Forçar falha (`FAIL_RATE=1`) e verificar o alerta no log com `DISCORD_WEBHOOK_URL` vazio
+- [x] Preservação de contratos sem cadastro, reconciliação da corrida e transferência de parceiro
 
-O envio ao Discord continua disponível ao configurar um webhook; a demonstração deste bloco não envia mensagens externas.
+O envio ao Discord é opcional; a demonstração usa o alerta local, sem mensagens externas.
 
-## Bloco 4 — Leituras (1h30)
+## Bloco 4 — Leituras
 
 - [x] `findJourney`: um SELECT com `LEFT JOIN leads` + agregação LATERAL de `production`
 - [x] `attribution`: métricas independentes de cadastro e produção por canal, com `sem_origem` e `sem_cadastro`
 - [x] Rotas `GET /partners/:code/journey` (404 se não existir) e `GET /metrics/attribution?from=&to=`
-- [x] Testes reais de integração substituem os TODOs de leituras, com datas inclusivas em UTC
+- [x] Integração com PostgreSQL real e datas inclusivas no fuso do negócio (São Paulo)
 - [x] `EXPLAIN ANALYZE` das duas queries, índice por `paid_at` na migration 003 e comparação no README
 - [x] Demonstração com seed + sync e curls reais no README; leituras sem autenticação documentadas
 
-## Bloco 5 — Fechamento (1h15)
+## Bloco 5 — Fechamento
 
-- [ ] README: print do `curl` da atribuição e do alerta no Discord
-- [ ] CI verde no GitHub (badge no README)
-- [ ] Tag `v1.0.0`
+- [x] README final: problema, solução, decisões, demonstração, respostas JSON e exemplo de alerta
+- [x] CI com formatação, lint, TypeScript, testes e build Docker; badge no README
+- [x] Changelog 1.0.0 e exemplos executáveis no REST Client
+- [x] Correção do fechamento mensal no fuso de São Paulo, com teste de regressão
 
-## Extras (se sobrar tempo, ou na semana seguinte)
+Publicação após o merge do PR de fechamento: tag anotada `v1.0.0`, texto para a release
+e remoção das branches remotas já integradas. Não confundir preparação com release publicada.
 
-- Autenticação JWT nas rotas de leitura (você já tem o projeto de login: reaproveite)
+## Próximos passos
+
+- Autenticação JWT e autorização nas rotas de leitura
+- Advisory lock para impedir sincronizações simultâneas
+- INSERT em lote após medir o ganho com `EXPLAIN (ANALYZE, BUFFERS)`
 - OpenAPI/Swagger em `/docs`
-- Fila (BullMQ + Redis) no lugar do `setInterval`
+- Agendamento e fila (BullMQ + Redis); a sync atual é um comando de execução única
 - Métricas Prometheus em `/metrics`
 
 ## Perguntas que vão te fazer na entrevista (treine as respostas)

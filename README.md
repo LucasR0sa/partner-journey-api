@@ -1,224 +1,117 @@
 # Partner Journey API
 
+API que liga leads, cadastros e contratos do CRM para atribuir produção aos canais de marketing.
+
 [![CI](https://github.com/LucasR0sa/partner-journey-api/actions/workflows/ci.yml/badge.svg)](https://github.com/LucasR0sa/partner-journey-api/actions/workflows/ci.yml)
+[![Node 22](https://img.shields.io/badge/Node.js-22-339933?logo=nodedotjs&logoColor=white)](.nvmrc)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](docker-compose.yml)
+[![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-API que acompanha cada parceiro **do lead ao resultado**: recebe leads do marketing por webhook,
-liga cada cadastro ao lead de origem e sincroniza a produção do CRM, para responder
-_"quanto cada canal trouxe de parceiros e de produção?"_.
+## O problema
 
-Versão aberta, com dados fictícios, da arquitetura que construí em produção numa promotora de crédito
-(96,8% dos cadastros ligados ao lead de origem).
+O marketing gera leads, mas cadastros e contratos chegam por outro sistema, sem um ID compartilhado.
+Eventos repetidos, falhas do CRM e dados fora de ordem podem duplicar ou esconder resultados.
+Sem ligar essas etapas, não dá para saber quais canais trouxeram parceiros e produção.
+
+## A solução
+
+Webhooks assinados e idempotentes recebem leads e cadastros; matching normalizado liga suas origens.
+Uma sync incremental salva todos os contratos e reconcilia vínculos, mesmo quando o cadastro chega depois.
+Leituras SQL mostram a jornada do parceiro e a produção por canal, com testes reais e CI em cada PR.
+
+Projeto de portfólio com **dados fictícios**. Stack: Node 22, TypeScript, Express 5, PostgreSQL 16
+(SQL puro via `pg`), Zod, Pino, Vitest + Supertest, Docker Compose e GitHub Actions.
 
 ```mermaid
 flowchart LR
-    RD["Leads<br/>(webhook)"] --> API["Partner Journey API"]
-    CRM1["Cadastros<br/>(webhook)"] --> API
-    CRM2["Contratos<br/>(API paginada)"] -- "sync com retry" --> API
-    API --> DB[("PostgreSQL")]
-    API -. "falha" .-> DC["Discord"]
+    LEAD["1. Lead: webhook HMAC"] --> L["Normalização + idempotência"]
+    L --> DB[(PostgreSQL)]
+    SIGNUP["2. Cadastro: webhook HMAC"] --> S["Matching + upsert + vínculo pendente"]
+    S --> DB
+    CRM["3. CRM: API paginada"] --> SYNC["Sync: retry + transação por página + cursor"]
+    SYNC --> DB
+    SYNC --> REC["Reconciliação dos contratos sem vínculo"]
+    REC --> DB
+    SYNC -. "falha após tentativas" .-> DISCORD["Alerta no Discord ou log"]
+    READ["4. GET jornada / atribuição"] --> SQL["Agregações SQL"]
+    SQL --> DB
+    DB --> SQL
+    SQL --> READ
 ```
-
-## Stack
-
-Node.js 22 · TypeScript · Express 5 · PostgreSQL 16 (SQL puro, sem ORM) · Zod · Pino · Vitest + Supertest · Docker · GitHub Actions
 
 ## Decisões técnicas
 
-|                                                    | Decisão                                                                | Por quê                                                              |
-| -------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| [0001](docs/adr/0001-webhooks-idempotentes.md)     | Idempotência por `UNIQUE(event_id)` + `ON CONFLICT`                    | Webhook chega repetido; a constraint resolve até com várias réplicas |
-| [0002](docs/adr/0002-matching-lead-cadastro.md)    | Matching normalizado, e-mail > telefone, last touch, janela de 90 dias | Liga o cadastro ao lead sem id em comum, de forma auditável          |
-| [0003](docs/adr/0003-sincronizacao-incremental.md) | Cursor + transação por página + retry com backoff + alerta no Discord  | API instável não deixa dado pela metade nem falha em silêncio        |
+| Decisão                                                                                                | Implementação e motivo                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [ADR 0001 — Webhooks idempotentes](docs/adr/0001-webhooks-idempotentes.md)                             | `UNIQUE(event_id)` + `ON CONFLICT`: a constraint resolve duplicidade inclusive sob concorrência. HMAC é verificado sobre o corpo bruto.                                                             |
+| [ADR 0002 — Matching](docs/adr/0002-matching-lead-cadastro.md)                                         | E-mail antes de telefone, lead mais recente e anterior ao cadastro, janela de 90 dias; `match_method` permite auditoria.                                                                            |
+| [ADR 0003 — Sync incremental](docs/adr/0003-sincronizacao-incremental.md)                              | Contratos e cursor na mesma transação; retry só para falhas temporárias, vínculo tardio e alerta. Contrato nunca é descartado.                                                                      |
+| [Condição de corrida sync × cadastro — PR #5](https://github.com/LucasR0sa/partner-journey-api/pull/5) | Teste com duas conexões reproduz a invisibilidade de linhas não confirmadas em READ COMMITTED. Reconciliação após as páginas garante consistência eventual; releitura não apaga vínculo confirmado. |
 
-Arquitetura completa: [docs/architecture.md](docs/architecture.md)
-
-## Rodando
-
-```bash
-cp .env.example .env
-docker compose up -d db fake-crm
-npm ci
-npm run migrate
-npm run dev        # http://localhost:3000/health
-npm run seed       # 300 leads + 150 cadastros fictícios via webhooks assinados
-```
-
-Ou tudo em container: `docker compose up --build`.
-
-O Postgres do Compose fica em `localhost:5433` para não conflitar com uma instalação local na porta padrão.
-Na primeira inicialização, ele também cria o banco isolado `journey_test` usado pelos testes de integração.
-
-O seed cria os parceiros `P0001` a `P0150`, compatíveis com os códigos do fake-crm:
-50 ligados por e-mail, 50 somente por telefone e 50 sem lead de origem.
-Rodar novamente não duplica os leads nem os parceiros; os cadastros existentes são atualizados.
-
-## Sincronização
-
-Com o `.env` configurado, suba as dependências e aplique as migrations:
-
-```bash
-docker compose up -d db fake-crm
-npm run migrate
-```
-
-Mantenha `npm run dev` aberto em outro terminal. Depois de criar os parceiros com o seed,
-execute a sincronização uma vez:
-
-```bash
-npm run seed
-npm run sync
-```
-
-O comando fecha o pool ao terminar; não há agendamento contínuo neste bloco.
-Cada página confirma contratos e cursor na mesma transação. O retry tem até 5 tentativas
-por página, com backoff exponencial e jitter, somente para HTTP 5xx e 429.
-
-Exemplo observado com o seed e o fake-crm padrão (campos de processo omitidos):
-
-```json
-{
-  "level": 30,
-  "job": "production_sync",
-  "pages": 20,
-  "upserted": 2000,
-  "unlinked": 532,
-  "relinked": 0,
-  "msg": "sincronização de produção concluída"
-}
-```
-
-`upserted` conta inserções **e atualizações** de todos os contratos. `unlinked` conta, nessa execução,
-os contratos gravados sem vínculo: `partner_code` é preservado e `partner_id` fica `null`.
-Quando o webhook cadastra o parceiro, o UPSERT do cadastro e o vínculo da produção pendente
-acontecem na mesma transação. O log do cadastro inclui `linkedContracts`, a quantidade vinculada;
-o reenvio não conta novamente contratos já vinculados. Nenhum contrato é descartado.
-Antes de marcar sucesso, a sync reconcilia pendências de qualquer página com parceiros já
-confirmados e registra quantos contratos vinculou em `relinked`. `unlinked` reflete o estado
-gravado em cada UPSERT, antes dessa reconciliação; não é o total final de pendências no banco.
-O `COALESCE` preserva um vínculo confirmado durante uma releitura concorrente apenas se
-`partner_code` não mudou. Se o CRM transferir o contrato, o vínculo antigo é substituído;
-quando o novo parceiro ainda não existe, o contrato aguarda seu cadastro com `partner_id` nulo.
-
-Na segunda execução, o total continuou em **2.000 linhas**, sendo 532 ainda sem cadastro:
-
-```json
-{
-  "level": 30,
-  "job": "production_sync",
-  "pages": 1,
-  "upserted": 100,
-  "unlinked": 21,
-  "relinked": 0,
-  "msg": "sincronização de produção concluída"
-}
-```
-
-O cursor final ficou em `1900`, início da última página: relê-la permite encontrar contratos novos
-sem baixar todas as páginas novamente. Se o CRM só tiver uma página (ou estiver vazio), o cursor
-inicial `null` também representa a última página. O vínculo tardio não consulta o CRM nem altera
-o cursor: ele usa os contratos que já estão no PostgreSQL, inclusive os de páginas antigas.
-
-### Recuperando contratos descartados na versão anterior
-
-Use `sync:full` após atualizar uma base que ignorava contratos sem parceiro ou quando precisar
-recapturar alterações do CRM em páginas anteriores. Com o banco e o fake-crm no ar:
-
-```bash
-npm run migrate
-npm run sync:full
-```
-
-A migration **002** preenche `partner_code` nas linhas existentes antes de aplicar `NOT NULL`
-e permite `partner_id` nulo. A migration 001, já aplicada, não é modificada.
-O comando reinicia somente o cursor de `production_sync` e reutiliza a sincronização normal;
-não apaga contratos. O `ON CONFLICT` permite repetir a recuperação sem duplicar produção.
-Não precisa da API HTTP rodando: o comando acessa diretamente o CRM e o banco.
-
-Na validação de uma base antiga, a migration preservou as 1.468 linhas existentes e a recuperação
-trouxe os 532 contratos descartados, totalizando 2.000. Os 532 ficam disponíveis para vínculo
-quando seus parceiros se cadastrarem. Depois, volte a usar `npm run sync` no fluxo incremental.
-Se a recuperação falhar, as páginas confirmadas permanecem gravadas e `npm run sync` retoma
-do cursor salvo. Execute sem outra sincronização em andamento; lock entre jobs fica fora deste PR.
-Decisão: [ADR 0003](docs/adr/0003-sincronizacao-incremental.md).
-
-### Forçando uma falha sem enviar mensagem ao Discord
-
-No `.env`, deixe `DISCORD_WEBHOOK_URL=` vazio e confira que o terminal não tem essa variável
-preenchida. Assim, o alerta fica somente no log. No PowerShell, force 100% de falhas do fake-crm:
-
-```powershell
-$env:FAIL_RATE = "1"
-docker compose up -d --force-recreate fake-crm
-docker compose logs -f fake-crm
-```
-
-Aguarde a mensagem `fake-crm em http://localhost:4000 (falha 100%)` e pressione `Ctrl+C`
-para sair **dos logs**, sem parar o container. Então execute:
-
-```powershell
-npm run sync
-$LASTEXITCODE # 1, depois das 5 tentativas
-```
-
-Exemplo de alerta (campos de processo omitidos):
-
-```json
-{
-  "level": 40,
-  "title": "Sync de produção falhou",
-  "details": {
-    "job": "production_sync",
-    "cursor": "1900",
-    "erro": "CRM respondeu 503",
-    "tentativas": 5
-  },
-  "msg": "alerta (Discord desativado)"
-}
-```
-
-A falha preenche `sync_state.last_error`, preserva o cursor e não desfaz páginas já confirmadas.
-Restaure a taxa padrão de 15% e acompanhe os logs até o CRM ficar pronto novamente:
-
-```powershell
-Remove-Item Env:FAIL_RATE
-docker compose up -d --force-recreate fake-crm
-docker compose logs -f fake-crm
-```
-
-Saia dos logs com `Ctrl+C` e rode `npm run sync`. Ao concluir, `last_error` volta a `null`.
-Se tiver alterado uma URL de Discord existente para a demonstração, restaure-a depois.
+Se o CRM transferir o contrato, o novo código substitui a origem anterior, sem herdar o parceiro antigo
+([PR #6](https://github.com/LucasR0sa/partner-journey-api/pull/6)).
+Arquitetura: [docs/architecture.md](docs/architecture.md). Histórico: [CHANGELOG.md](CHANGELOG.md).
 
 ## Demonstração (cerca de 5 minutos)
 
-Pré-requisitos: Node 22, Docker Compose e dependências baixadas. A primeira instalação e o download
-das imagens podem demorar mais. Na raiz do repositório, em um terminal:
+Pré-requisitos: **Node 22**, npm, Git e Docker Desktop/Compose em execução. A primeira instalação
+e o download das imagens podem levar mais de cinco minutos. Use apenas dados fictícios.
 
-```bash
-cp .env.example .env
+Em PowerShell, partindo de uma pasta sem uma cópia do projeto:
+
+```powershell
+git clone https://github.com/LucasR0sa/partner-journey-api.git
+cd partner-journey-api
+Copy-Item .env.example .env
 npm ci
 docker compose up -d --wait db fake-crm
 npm run migrate
 npm run dev
 ```
 
-Deixe a API aberta. Em outro terminal, na mesma pasta:
+Em Bash, substitua `Copy-Item .env.example .env` por `cp .env.example .env`.
+Se já tem um `.env`, **não o sobrescreva**. O exemplo contém credenciais apenas locais; em outro ambiente,
+use um `WEBHOOK_SECRET` próprio. `.env` fica ignorado pelo Git: não é um GitHub Actions Secret.
+Deixe `DISCORD_WEBHOOK_URL=` vazio para a demonstração não enviar mensagens externas.
 
-```bash
+Deixe a API aberta e execute em outro terminal, na mesma pasta:
+
+```powershell
+curl.exe -s http://localhost:3000/health
 npm run seed
 npm run sync
+curl.exe -s http://localhost:3000/partners/P0001/journey
+curl.exe -s "http://localhost:3000/metrics/attribution?from=2026-04-01&to=2026-10-01"
 ```
 
-O seed é idempotente. Em base nova, a sync percorre todas as páginas; se você estiver recuperando
-uma base antiga incompleta, use `npm run sync:full`. Aguarde o fake-crm iniciar na porta 4000.
-As leituras abaixo **não exigem HMAC nem JWT**; JWT fica nos extras do roadmap. Esta demonstração
-usa dados fictícios: não exponha informações reais sem implementar autenticação e autorização.
-No PowerShell, use `curl.exe` no lugar do alias `curl`.
+Em Bash, use `curl` no lugar de `curl.exe`. Health responde `{"status":"ok"}`.
+O seed envia **300 leads e 150 cadastros** (`P0001` a `P0150`) por webhooks assinados:
+50 casam por e-mail, 50 por telefone e 50 ficam sem origem. Pode repetir sem duplicar.
+A primeira sync de uma base nova importa **2.000 contratos** do fake-crm, que falha propositalmente
+em aproximadamente 15% das chamadas. Se ele ainda estiver iniciando, confira `docker compose logs fake-crm`.
+Exemplos de requisições no VS Code REST Client: [requests.http](requests.http).
 
-```bash
-curl -s http://localhost:3000/partners/P0001/journey
-```
+O PostgreSQL local usa a porta **5433** e um volume persistente. O primeiro início também cria
+`journey_test`, banco isolado dos testes. Não use `docker compose down -v` para apenas parar o projeto:
+`-v` apaga os dados. Para encerrar, `Ctrl+C` na API e `docker compose stop`.
 
-Resposta real com o seed e 2.000 contratos (campos de contato não são expostos):
+## Endpoints
+
+| Método | Rota                             | Status | Resposta                            |
+| ------ | -------------------------------- | ------ | ----------------------------------- |
+| GET    | `/health`                        | ✅     | 200; verifica a conexão com o banco |
+| POST   | `/webhooks/leads`                | ✅     | HMAC; 201 criado / 200 duplicado    |
+| POST   | `/webhooks/signups`              | ✅     | HMAC; 201 criado / 200 atualizado   |
+| GET    | `/partners/:code/journey`        | ✅     | 200; 404 se o parceiro não existe   |
+| GET    | `/metrics/attribution?from=&to=` | ✅     | 200; 422 para filtros inválidos     |
+
+**Leituras sem autenticação nesta versão.** Não exponha dados reais sem autenticação e autorização.
+Os webhooks exigem `x-signature: sha256=<HMAC-SHA256>` sobre os bytes exatos do JSON; assinatura
+inválida retorna 401 e corpo inválido, 422. JSON malformado retorna 400.
+
+<details>
+<summary>Resposta de GET /partners/P0001/journey, após seed + sync</summary>
 
 ```json
 {
@@ -240,11 +133,13 @@ Resposta real com o seed e 2.000 contratos (campos de contato não são expostos
 }
 ```
 
-```bash
-curl -s "http://localhost:3000/metrics/attribution?from=2026-04-01&to=2026-10-01"
-```
+A jornada mostra toda a produção histórica vinculada, sem filtro de período.
+Sem lead, `lead` é `null`; sem contratos, totais são zero e datas são `null`.
 
-Resposta real resumida: `rows` mostra as duas primeiras das seis linhas; `totals` soma todas elas.
+</details>
+
+<details>
+<summary>Resposta de GET /metrics/attribution?from=2026-04-01&amp;to=2026-10-01, após seed + sync</summary>
 
 ```json
 {
@@ -264,6 +159,34 @@ Resposta real resumida: `rows` mostra as duas primeiras das seis linhas; `totals
       "producingPartners": 50,
       "contracts": 490,
       "totalCents": 533399020
+    },
+    {
+      "source": "organico",
+      "newPartners": 25,
+      "producingPartners": 25,
+      "contracts": 265,
+      "totalCents": 296590848
+    },
+    {
+      "source": "google_ads",
+      "newPartners": 25,
+      "producingPartners": 25,
+      "contracts": 241,
+      "totalCents": 248444998
+    },
+    {
+      "source": "meta_ads",
+      "newPartners": 25,
+      "producingPartners": 25,
+      "contracts": 241,
+      "totalCents": 244141714
+    },
+    {
+      "source": "indicacao",
+      "newPartners": 25,
+      "producingPartners": 25,
+      "contracts": 231,
+      "totalCents": 223414402
     }
   ],
   "totals": {
@@ -275,108 +198,141 @@ Resposta real resumida: `rows` mostra as duas primeiras das seis linhas; `totals
 }
 ```
 
+</details>
+
 ### Definição das métricas
 
 - `newPartners`: cadastros com `signed_up_at` no período, tenham ou não produção.
-- `producingPartners`: parceiros distintos com contratos pagos no período, mesmo cadastrados antes dele.
-- `contracts` e `totalCents`: quantidade de contratos e soma em centavos por `paid_at`, inclusive produção sem cadastro.
-- `source`: fonte atual do lead vinculado; `sem_origem` identifica cadastro sem lead e `sem_cadastro`, produção com `partner_id` nulo. Este último tem zero parceiros nas duas contagens.
+- `producingPartners`: parceiros distintos com pagamentos no período, mesmo cadastrados antes dele.
+- `contracts` e `totalCents`: contratos e soma em **centavos inteiros**, filtrados por `paid_at`.
+- `source`: canal atual do lead; `sem_origem` para cadastro sem lead e `sem_cadastro` para contrato
+  sem vínculo. `sem_cadastro` tem zero parceiros nas duas contagens.
 
-As datas são obrigatórias, reais e no formato `YYYY-MM-DD`, de `0001` a `9999`.
-Os limites são datas locais do negócio em **America/Sao_Paulo**, inclusivas,
-com no máximo **366 dias contando as duas pontas**. Para cadastros, o SQL converte o início
-do primeiro dia e do dia seguinte ao último para instantes, sem depender do fuso da sessão PostgreSQL.
-Assim, 31/10 às 22h em São Paulo (01h UTC de 01/11) conta em outubro.
-`paid_at` já é uma data do CRM e não recebe conversão de fuso. Os timestamps da API continuam em UTC.
-A resposta contém canais com cadastro ou produção no período, ordenados por `totalCents`
-decrescente e, nos empates, pelo nome do canal. Período sem atividade retorna `rows: []` e totais zero.
-Código inexistente responde 404 `partner_not_found`; filtros inválidos respondem 422.
-A jornada mostra toda a produção histórica vinculada ao parceiro, sem filtro de período.
+**Fuso do negócio:** `from` e `to` são datas locais em **America/Sao_Paulo**, inclusivas.
+Para `signed_up_at`, [AT TIME ZONE](https://www.postgresql.org/docs/16/functions-datetime.html#FUNCTIONS-DATETIME-ZONECONVERT)
+converte o início do primeiro dia e o início do dia seguinte ao último em instantes, sem depender
+do fuso da sessão PostgreSQL. Assim, **31/10 às 22h em São Paulo (01h UTC de 01/11) conta em outubro**.
+O motivo é o calendário do negócio, não horário de verão. `paid_at` já é uma data do CRM;
+não recebe conversão. Timestamps nas respostas continuam em UTC.
 
-## Leituras e desempenho
+Filtros obrigatórios: datas reais `YYYY-MM-DD` (anos 0001–9999), `from <= to`, no máximo
+**366 dias contando as duas pontas**. Canais com cadastro ou produção aparecem por `totalCents`
+decrescente, com desempate pelo nome. Sem atividade: `rows: []` e totais zero.
 
-A jornada usa um único SELECT com `LEFT JOIN leads` e agregação `LATERAL` da produção por parceiro:
-mantém uma linha mesmo sem contratos, com soma/contagem zero e datas nulas. O vínculo com `leads`
-pela chave primária não multiplica linhas por si só; a produção é uma relação 1:N. Agregar antes
-evita contar o cadastro uma vez por contrato e facilita futuras relações 1:N sem inflar os totais.
-A atribuição agrega cadastros e pagamentos separadamente e combina os canais com `FULL JOIN`,
-pois cada métrica usa uma data diferente e pode existir sem a outra.
+## Sincronização e recuperação
 
-Medição local após seed + sync e `ANALYZE`: 300 leads, 150 parceiros, 2.000 contratos,
-com `EXPLAIN (ANALYZE, BUFFERS)` e cache aquecido. Os tempos são exemplos locais, não SLA.
+`npm run sync` executa uma vez e fecha o pool; **não há agendador nesta versão**.
+Cada página confirma contratos e cursor na mesma transação. Retry: até cinco tentativas,
+backoff exponencial com jitter, somente para HTTP 5xx e 429. Erros 4xx permanentes não são repetidos.
+O cursor final preserva o início da última página para encontrar novos contratos sem reler tudo.
 
-| Consulta                      | Antes da migration 003                                                          | Depois                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Jornada `P0001`               | Bitmap Index Scan no `production_partner_paid_idx`, 7 contratos, 14 buffers     | Mesmo plano e 14 buffers; nenhum índice novo necessário para a jornada           |
-| Atribuição de `2026-05-01`    | Seq Scan em `production`: 2.000 linhas, 1.995 descartadas; 62 buffers; ~0,31 ms | Bitmap Index Scan no `production_paid_at_idx`: 5 contratos; 19 buffers; ~0,24 ms |
-| Atribuição de abril a outubro | Seq Scan dos 2.000 contratos; 66 buffers; ~1,59 ms                              | Continua Seq Scan, apropriado para ler a base toda; 66 buffers; ~1,59 ms         |
+- `upserted`: contratos inseridos **ou atualizados** nesta execução.
+- `unlinked`: contratos gravados sem parceiro naquele momento, antes da reconciliação.
+- `relinked`: contratos pendentes vinculados pela reconciliação ao final da sync.
+- `linkedContracts`: vínculo tardio feito na transação do cadastro, registrado no log do webhook.
 
-A migration **003** adiciona somente `production(paid_at)`. O índice experimental em
-`partners(signed_up_at)` não mudou o plano com 150 parceiros, então não foi mantido.
-As migrations 001 e 002 permanecem intactas. Os índices experimentais foram comparados em
-transação e desfeitos; somente o índice escolhido foi aplicado pela migration.
-Para reproduzir com as mesmas queries do repository:
+Para recuperar contratos ignorados por versões antigas ou alterações do CRM em páginas anteriores:
 
 ```bash
-npm run explain:reads -- P0001 2026-05-01 2026-05-01
-npm run explain:reads -- P0001 2026-04-01 2026-10-01
+npm run migrate
+npm run sync:full
 ```
+
+O comando zera **somente o cursor** de `production_sync`, sem apagar contratos. UPSERT permite
+reprocessar sem duplicar. Se falhar, `npm run sync` retoma da última página confirmada.
+Execute sem outra sync em andamento; exclusão mútua entre jobs ainda não foi implementada.
+A API HTTP não precisa estar rodando para sincronizar.
+
+### Alerta de falha
+
+Com `DISCORD_WEBHOOK_URL` configurado, a falha após as tentativas envia job, cursor e erro ao Discord.
+Sem URL, fica somente no log; falhar ao enviar o alerta nunca esconde a falha original.
+Exemplo com Discord desativado, sem campos de processo:
+
+```json
+{
+  "level": 40,
+  "title": "Sync de produção falhou",
+  "details": {
+    "job": "production_sync",
+    "cursor": "1900",
+    "erro": "CRM respondeu 503",
+    "tentativas": 5
+  },
+  "msg": "alerta (Discord desativado)"
+}
+```
+
+Para exercitar localmente em PowerShell, deixe `DISCORD_WEBHOOK_URL=` vazio no `.env` e sem
+sobreposição no terminal. Force a falha, aguarde o CRM reiniciar e rode a sync:
+
+```powershell
+$env:FAIL_RATE = "1"
+docker compose up -d --force-recreate fake-crm
+docker compose logs -f fake-crm
+# Ao ver "falha 100%", Ctrl+C sai apenas dos logs.
+npm run sync
+# Restaure depois:
+Remove-Item Env:FAIL_RATE
+docker compose up -d --force-recreate fake-crm
+```
+
+A falha preenche `last_error` sem desfazer páginas confirmadas; uma sync bem-sucedida limpa o erro.
 
 ## Testes
 
-```bash
-npm test               # unitários + integração (precisa do Postgres do compose)
-npm run test:unit      # só unitários, sem banco
-```
-
-Os testes de integração usam Postgres de verdade, inclusive um teste de **concorrência**
-(o mesmo evento 10× em paralelo → 1 linha).
-
-## Formatação
-
-O Prettier padroniza a formatação e complementa as verificações do ESLint.
-Os scripts aceitam arquivos ou diretórios. A CI verifica os arquivos adotados pelo formatador,
-incluindo cadastros, sincronização, seus testes, a composição da API e o seed:
+**90 testes automatizados, sem testes ignorados ou pendentes.** Unitários verificam normalização,
+HMAC, matching e limites de 90 dias, retry, ambiente e alertas. Integração usa **PostgreSQL real**:
+webhooks, dez entregas concorrentes do mesmo evento, cursor/rollback por página, migração de base
+existente, recuperação completa, vínculo tardio, corrida com duas conexões, transferência de contrato,
+jornada e atribuição com fechamento mensal no fuso de São Paulo.
 
 ```bash
-npm run format -- src/modules/signups/signup.service.ts tests/unit/match.test.ts
-npm run format:check -- src/modules/signups/signup.service.ts tests/unit/match.test.ts
+docker compose up -d --wait db fake-crm
+npm test                   # unitários + integração; banco journey_test
+npm run test:unit          # sem banco
+npm run test:integration   # PostgreSQL real
+npm run lint
+npm run typecheck
+npm run format:check -- README.md ROADMAP.md CHANGELOG.md src/modules/journey
 ```
 
-## Endpoints
+Não aponte os testes para o banco de desenvolvimento/produção: eles limpam suas tabelas.
+O padrão é `journey_test` na porta 5433; a CI fornece um PostgreSQL isolado.
+O workflow verifica formatação, ESLint, TypeScript e testes, depois constrói a imagem Docker.
+**CI automatizada e build reproduzível; deploy contínuo não está implementado.**
 
-| Método | Rota                             | Status |
-| ------ | -------------------------------- | ------ |
-| GET    | `/health`                        | ✅     |
-| POST   | `/webhooks/leads`                | ✅     |
-| POST   | `/webhooks/signups`              | ✅     |
-| GET    | `/partners/:code/journey`        | ✅     |
-| GET    | `/metrics/attribution?from=&to=` | ✅     |
+## Leituras e desempenho
 
-### Exemplo: enviando um lead
+A jornada usa `LEFT JOIN leads` + agregação `LATERAL` da produção em **um SELECT**, preservando
+parceiros sem contratos. A atribuição agrega cadastros e pagamentos separadamente e faz `FULL JOIN`
+por canal, sem multiplicar contagens. SQL parametrizado em repositories; regras em services.
+
+Medição local registrada no [PR #7](https://github.com/LucasR0sa/partner-journey-api/pull/7), com
+300 leads, 150 parceiros, 2.000 contratos e cache aquecido; não é promessa de latência:
+
+| Consulta                      | Antes da migration 003                                        | Depois                                                             |
+| ----------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Jornada `P0001`               | Índice `production_partner_paid_idx`, 7 contratos, 14 buffers | Mesmo plano, sem novo índice                                       |
+| Atribuição de `2026-05-01`    | Seq Scan: 2.000 contratos, 62 buffers, ~0,31 ms               | Índice `production_paid_at_idx`: 5 contratos, 19 buffers, ~0,24 ms |
+| Atribuição de abril a outubro | Seq Scan: 2.000 contratos, 66 buffers, ~1,59 ms               | Mesmo plano, apropriado para ler toda a base                       |
+
+Somente `production(paid_at)` foi acrescentado. O índice experimental em `partners(signed_up_at)`
+não mudou o plano com 150 parceiros e não foi mantido. Para inspecionar as queries atuais:
 
 ```bash
-BODY='{"event_id":"evt-1","occurred_at":"2026-10-01T12:00:00Z","source":"meta_ads","contact":{"email":"ana@exemplo.com"}}'
-SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | cut -d' ' -f2)
-curl -X POST localhost:3000/webhooks/leads -H "content-type: application/json" -H "x-signature: sha256=$SIG" -d "$BODY"
-# 201 {"id":1,"status":"created"}  → de novo: 200 {"status":"duplicate"}
+npm run explain:reads -- P0001 2026-05-01 2026-05-01
 ```
 
-## Estrutura
+## O que eu faria a seguir
 
-```
-src/
-  app.ts                 # monta o Express com as dependências injetadas
-  server.ts              # sobe, aplica migrations, desliga com graça
-  config/env.ts          # variáveis validadas com Zod (falha cedo)
-  db/                    # pool, runner de migrations, .sql
-  modules/<módulo>/      # routes → service → repository
-  shared/                # normalize, hmac, retry, alertas, erros
-tests/unit | tests/integration
-tools/fake-crm.ts        # CRM falso que falha 15% das vezes, de propósito
-docs/adr/                # decisões técnicas
-```
+1. JWT e autorização nas leituras antes de expor dados reais.
+2. Advisory lock para impedir duas sincronizações simultâneas.
+3. INSERT em lote, somente após medir o ganho com `EXPLAIN (ANALYZE, BUFFERS)`.
+4. OpenAPI para documentar e exercitar os contratos HTTP.
+
+Evolução e perguntas de entrevista: [ROADMAP.md](ROADMAP.md).
 
 ## Licença
 
-MIT
+[MIT](LICENSE).
