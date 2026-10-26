@@ -129,7 +129,36 @@ describe("GET /partners/:code/journey", () => {
 });
 
 describe("GET /metrics/attribution", () => {
-  it("separa cadastro de produção, inclui canais sem origem/cadastro e respeita os limites UTC", async () => {
+  it("fecha o mês no fuso de São Paulo, incluindo 31/10 às 22h em outubro", async () => {
+    await signup("P-before", "2026-09-30T23:59:59.999-03:00");
+    await signup("P-start", "2026-10-01T00:00:00-03:00");
+    await signup("P-late", "2026-10-31T22:00:00-03:00");
+    await signup("P-last", "2026-10-31T23:59:59.999-03:00");
+    await signup("P-next", "2026-11-01T00:00:00-03:00");
+
+    const october = await request(app)
+      .get("/metrics/attribution")
+      .query({ from: "2026-10-01", to: "2026-10-31" });
+    expect(october.status).toBe(200);
+    expect(october.body.rows).toEqual([
+      {
+        source: "sem_origem",
+        newPartners: 3,
+        producingPartners: 0,
+        contracts: 0,
+        totalCents: 0,
+      },
+    ]);
+    expect(october.body.totals.newPartners).toBe(3);
+
+    const november = await request(app)
+      .get("/metrics/attribution")
+      .query({ from: "2026-11-01", to: "2026-11-30" });
+    expect(november.status).toBe(200);
+    expect(november.body.totals.newPartners).toBe(1);
+  });
+
+  it("separa cadastro de produção e respeita as datas inclusivas do negócio em São Paulo", async () => {
     const oldMeta = await signup(
       "P-meta-old",
       "2026-04-20T12:00:00Z",
@@ -138,16 +167,16 @@ describe("GET /metrics/attribution", () => {
     await signup("P-meta-new", "2026-05-15T12:00:00Z", "meta_ads");
     const googleStart = await signup(
       "P-google-start",
-      "2026-05-01T00:00:00Z",
+      "2026-05-01T00:00:00-03:00",
       "google_ads",
     );
     const googleOld = await signup(
       "P-google-old",
-      "2026-04-30T23:59:59.999Z",
+      "2026-04-30T23:59:59.999-03:00",
       "google_ads",
     );
-    const noOrigin = await signup("P-none", "2026-06-01T02:59:59.999+03:00");
-    await signup("P-after", "2026-06-01T03:00:00+03:00");
+    const noOrigin = await signup("P-none", "2026-05-31T23:59:59.999-03:00");
+    await signup("P-after", "2026-06-01T00:00:00-03:00");
     const organic = await signup(
       "P-organic",
       "2026-04-20T12:00:00Z",

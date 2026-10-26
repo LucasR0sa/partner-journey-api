@@ -283,9 +283,11 @@ Resposta real resumida: `rows` mostra as duas primeiras das seis linhas; `totals
 - `source`: fonte atual do lead vinculado; `sem_origem` identifica cadastro sem lead e `sem_cadastro`, produção com `partner_id` nulo. Este último tem zero parceiros nas duas contagens.
 
 As datas são obrigatórias, reais e no formato `YYYY-MM-DD`, de `0001` a `9999`.
-Os limites são inclusivos, em UTC, com no máximo **366 dias contando as duas pontas**.
-Para cadastros, o SQL usa início do primeiro dia até antes do dia seguinte ao último;
-isso inclui horários como `23:59:59.999` sem depender do fuso da sessão PostgreSQL.
+Os limites são datas locais do negócio em **America/Sao_Paulo**, inclusivas,
+com no máximo **366 dias contando as duas pontas**. Para cadastros, o SQL converte o início
+do primeiro dia e do dia seguinte ao último para instantes, sem depender do fuso da sessão PostgreSQL.
+Assim, 31/10 às 22h em São Paulo (01h UTC de 01/11) conta em outubro.
+`paid_at` já é uma data do CRM e não recebe conversão de fuso. Os timestamps da API continuam em UTC.
 A resposta contém canais com cadastro ou produção no período, ordenados por `totalCents`
 decrescente e, nos empates, pelo nome do canal. Período sem atividade retorna `rows: []` e totais zero.
 Código inexistente responde 404 `partner_not_found`; filtros inválidos respondem 422.

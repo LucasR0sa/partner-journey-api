@@ -50,8 +50,8 @@ export const ATTRIBUTION_SQL = `
     SELECT COALESCE(l.source, 'sem_origem') AS source, COUNT(*) AS new_partners
     FROM partners AS p
     LEFT JOIN leads AS l ON l.id = p.lead_id
-    WHERE p.signed_up_at >= ($1::date::timestamp AT TIME ZONE 'UTC')
-      AND p.signed_up_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+    WHERE p.signed_up_at >= ($1::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
+      AND p.signed_up_at < (($2::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo')
     GROUP BY 1
   ), paid_production AS (
     SELECT CASE WHEN pr.partner_id IS NULL THEN 'sem_cadastro'
