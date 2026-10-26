@@ -82,6 +82,7 @@ Exemplo observado com o seed e o fake-crm padrão (campos de processo omitidos):
   "pages": 20,
   "upserted": 2000,
   "unlinked": 532,
+  "relinked": 0,
   "msg": "sincronização de produção concluída"
 }
 ```
@@ -91,6 +92,10 @@ os contratos gravados sem vínculo: `partner_code` é preservado e `partner_id` 
 Quando o webhook cadastra o parceiro, o UPSERT do cadastro e o vínculo da produção pendente
 acontecem na mesma transação. O log do cadastro inclui `linkedContracts`, a quantidade vinculada;
 o reenvio não conta novamente contratos já vinculados. Nenhum contrato é descartado.
+Antes de marcar sucesso, a sync reconcilia pendências de qualquer página com parceiros já
+confirmados e registra quantos contratos vinculou em `relinked`. `unlinked` reflete o estado
+gravado em cada UPSERT, antes dessa reconciliação; não é o total final de pendências no banco.
+O `COALESCE` preserva um vínculo confirmado durante uma releitura concorrente.
 
 Na segunda execução, o total continuou em **2.000 linhas**, sendo 532 ainda sem cadastro:
 
@@ -101,6 +106,7 @@ Na segunda execução, o total continuou em **2.000 linhas**, sendo 532 ainda se
   "pages": 1,
   "upserted": 100,
   "unlinked": 21,
+  "relinked": 0,
   "msg": "sincronização de produção concluída"
 }
 ```

@@ -52,6 +52,7 @@ jobs:
           tests/integration/production.sync.test.ts
           tests/integration/production.full-sync.test.ts
           tests/integration/production.migration.test.ts
+          tests/integration/production.link-race.test.ts
           tests/integration/roadmap.todo.test.ts
           tests/integration/signups.webhook.test.ts
           tests/unit/match.test.ts

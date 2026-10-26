@@ -15,6 +15,7 @@ export interface SyncResult {
   pages: number;
   upserted: number;
   unlinked: number;
+  relinked: number;
 }
 
 /**
@@ -26,7 +27,7 @@ export interface SyncResult {
  *       - preservar contratos sem cadastro com partner_code e partner_id null
  *       - salvar o próximo cursor (ou manter o atual na última página)
  *     Assim, se cair no meio, recomeça da última página confirmada — sem duplicar.
- *  4. Ao terminar: last_success_at = now(), last_error = null.
+ *  4. Reconciliar vínculos pendentes antes de marcar sucesso.
  *  5. Se falhar: grava last_error e chama alerter.notify(...) com job, cursor e erro.
  */
 export async function runProductionSync(deps: {
@@ -45,6 +46,7 @@ export async function runProductionSync(deps: {
     pages: 0,
     upserted: 0,
     unlinked: 0,
+    relinked: 0,
   };
   let cursor: string | null = null;
   let attempts = 0;
@@ -92,6 +94,7 @@ export async function runProductionSync(deps: {
       cursor = page.next_cursor;
     }
 
+    result.relinked = await repo.reconcileUnlinked();
     await repo.markSuccess(JOB_NAME);
     logger.info(
       { job: JOB_NAME, ...result },
