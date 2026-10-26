@@ -62,6 +62,7 @@ jobs:
           tests/integration/signups.webhook.test.ts
           tests/unit/match.test.ts
           tools/seed.ts
+          tools/explain-reads.ts
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
