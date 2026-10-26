@@ -32,8 +32,10 @@ confirmar primeiro, o contrato pode terminar sem vínculo mesmo com o parceiro j
 Após confirmar todas as páginas e antes de marcar sucesso, `reconcileUnlinked()` atualiza
 as pendências de qualquer página por `partner_code = crm_code`, com o predicado do índice
 parcial `partner_id IS NULL`, e registra a quantidade em `relinked`.
-O UPSERT usa `COALESCE(EXCLUDED.partner_id, production.partner_id)` para uma leitura
-desatualizada não desfazer um vínculo já confirmado. Se um cadastro ainda estiver aberto
+O UPSERT usa `COALESCE(EXCLUDED.partner_id, production.partner_id)` apenas quando o código
+do parceiro não mudou, para uma leitura desatualizada não desfazer um vínculo já confirmado.
+Se o CRM transferir o contrato, o vínculo antigo não é herdado: vale o novo parceiro ou `null`
+até seu cadastro chegar. Se um cadastro ainda estiver aberto
 durante a reconciliação, a próxima execução volta a avaliar todas as pendências, garantindo
 consistência eventual sem reler páginas antigas do CRM nem exigir uma sync completa.
 
