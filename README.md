@@ -188,6 +188,138 @@ docker compose logs -f fake-crm
 Saia dos logs com `Ctrl+C` e rode `npm run sync`. Ao concluir, `last_error` volta a `null`.
 Se tiver alterado uma URL de Discord existente para a demonstração, restaure-a depois.
 
+## Demonstração (cerca de 5 minutos)
+
+Pré-requisitos: Node 22, Docker Compose e dependências baixadas. A primeira instalação e o download
+das imagens podem demorar mais. Na raiz do repositório, em um terminal:
+
+```bash
+cp .env.example .env
+npm ci
+docker compose up -d --wait db fake-crm
+npm run migrate
+npm run dev
+```
+
+Deixe a API aberta. Em outro terminal, na mesma pasta:
+
+```bash
+npm run seed
+npm run sync
+```
+
+O seed é idempotente. Em base nova, a sync percorre todas as páginas; se você estiver recuperando
+uma base antiga incompleta, use `npm run sync:full`. Aguarde o fake-crm iniciar na porta 4000.
+As leituras abaixo **não exigem HMAC nem JWT**; JWT fica nos extras do roadmap. Esta demonstração
+usa dados fictícios: não exponha informações reais sem implementar autenticação e autorização.
+No PowerShell, use `curl.exe` no lugar do alias `curl`.
+
+```bash
+curl -s http://localhost:3000/partners/P0001/journey
+```
+
+Resposta real com o seed e 2.000 contratos (campos de contato não são expostos):
+
+```json
+{
+  "crmCode": "P0001",
+  "name": "Parceiro 1",
+  "lead": {
+    "source": "google_ads",
+    "campaign": "campanha-2",
+    "occurredAt": "2026-04-01T12:00:00.000Z"
+  },
+  "matchMethod": "email",
+  "signedUpAt": "2026-04-08T12:00:00.000Z",
+  "production": {
+    "totalCents": 7301098,
+    "contracts": 7,
+    "firstPaidAt": "2026-04-12",
+    "lastPaidAt": "2026-08-29"
+  }
+}
+```
+
+```bash
+curl -s "http://localhost:3000/metrics/attribution?from=2026-04-01&to=2026-10-01"
+```
+
+Resposta real resumida: `rows` mostra as duas primeiras das seis linhas; `totals` soma todas elas.
+
+```json
+{
+  "from": "2026-04-01",
+  "to": "2026-10-01",
+  "rows": [
+    {
+      "source": "sem_cadastro",
+      "newPartners": 0,
+      "producingPartners": 0,
+      "contracts": 532,
+      "totalCents": 534481422
+    },
+    {
+      "source": "sem_origem",
+      "newPartners": 50,
+      "producingPartners": 50,
+      "contracts": 490,
+      "totalCents": 533399020
+    }
+  ],
+  "totals": {
+    "newPartners": 150,
+    "producingPartners": 150,
+    "contracts": 2000,
+    "totalCents": 2080472404
+  }
+}
+```
+
+### Definição das métricas
+
+- `newPartners`: cadastros com `signed_up_at` no período, tenham ou não produção.
+- `producingPartners`: parceiros distintos com contratos pagos no período, mesmo cadastrados antes dele.
+- `contracts` e `totalCents`: quantidade de contratos e soma em centavos por `paid_at`, inclusive produção sem cadastro.
+- `source`: fonte atual do lead vinculado; `sem_origem` identifica cadastro sem lead e `sem_cadastro`, produção com `partner_id` nulo. Este último tem zero parceiros nas duas contagens.
+
+As datas são obrigatórias, reais e no formato `YYYY-MM-DD`, de `0001` a `9999`.
+Os limites são inclusivos, em UTC, com no máximo **366 dias contando as duas pontas**.
+Para cadastros, o SQL usa início do primeiro dia até antes do dia seguinte ao último;
+isso inclui horários como `23:59:59.999` sem depender do fuso da sessão PostgreSQL.
+A resposta contém canais com cadastro ou produção no período, ordenados por `totalCents`
+decrescente e, nos empates, pelo nome do canal. Período sem atividade retorna `rows: []` e totais zero.
+Código inexistente responde 404 `partner_not_found`; filtros inválidos respondem 422.
+A jornada mostra toda a produção histórica vinculada ao parceiro, sem filtro de período.
+
+## Leituras e desempenho
+
+A jornada usa um único SELECT com `LEFT JOIN leads` e agregação `LATERAL` da produção por parceiro:
+mantém uma linha mesmo sem contratos, com soma/contagem zero e datas nulas. O vínculo com `leads`
+pela chave primária não multiplica linhas por si só; a produção é uma relação 1:N. Agregar antes
+evita contar o cadastro uma vez por contrato e facilita futuras relações 1:N sem inflar os totais.
+A atribuição agrega cadastros e pagamentos separadamente e combina os canais com `FULL JOIN`,
+pois cada métrica usa uma data diferente e pode existir sem a outra.
+
+Medição local após seed + sync e `ANALYZE`: 300 leads, 150 parceiros, 2.000 contratos,
+com `EXPLAIN (ANALYZE, BUFFERS)` e cache aquecido. Os tempos são exemplos locais, não SLA.
+
+| Consulta                      | Antes da migration 003                                                          | Depois                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Jornada `P0001`               | Bitmap Index Scan no `production_partner_paid_idx`, 7 contratos, 14 buffers     | Mesmo plano e 14 buffers; nenhum índice novo necessário para a jornada           |
+| Atribuição de `2026-05-01`    | Seq Scan em `production`: 2.000 linhas, 1.995 descartadas; 62 buffers; ~0,31 ms | Bitmap Index Scan no `production_paid_at_idx`: 5 contratos; 19 buffers; ~0,24 ms |
+| Atribuição de abril a outubro | Seq Scan dos 2.000 contratos; 66 buffers; ~1,59 ms                              | Continua Seq Scan, apropriado para ler a base toda; 66 buffers; ~1,59 ms         |
+
+A migration **003** adiciona somente `production(paid_at)`. O índice experimental em
+`partners(signed_up_at)` não mudou o plano com 150 parceiros, então não foi mantido.
+As migrations 001 e 002 permanecem intactas. Os índices experimentais foram comparados em
+transação e desfeitos; somente o índice escolhido foi aplicado pela migration.
+Para reproduzir com as mesmas queries do repository:
+
+```bash
+npm run explain:reads -- P0001 2026-05-01 2026-05-01
+npm run explain:reads -- P0001 2026-04-01 2026-10-01
+```
+
 ## Testes
 
 ```bash
@@ -216,8 +348,8 @@ npm run format:check -- src/modules/signups/signup.service.ts tests/unit/match.t
 | GET    | `/health`                        | ✅     |
 | POST   | `/webhooks/leads`                | ✅     |
 | POST   | `/webhooks/signups`              | ✅     |
-| GET    | `/partners/:code/journey`        | 🚧     |
-| GET    | `/metrics/attribution?from=&to=` | 🚧     |
+| GET    | `/partners/:code/journey`        | ✅     |
+| GET    | `/metrics/attribution?from=&to=` | ✅     |
 
 ### Exemplo: enviando um lead
 

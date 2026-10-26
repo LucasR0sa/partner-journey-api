@@ -8,6 +8,9 @@ import { leadRoutes } from "./modules/leads/lead.routes.js";
 import { createSignupRepository } from "./modules/signups/signup.repository.js";
 import { createSignupService } from "./modules/signups/signup.service.js";
 import { signupRoutes } from "./modules/signups/signup.routes.js";
+import { createJourneyRepository } from "./modules/journey/journey.repository.js";
+import { createJourneyService } from "./modules/journey/journey.service.js";
+import { journeyRoutes } from "./modules/journey/journey.routes.js";
 
 // createApp recebe as dependências por parâmetro (injeção de dependência simples):
 // nos testes passamos um banco de teste; em produção, o pool real.
@@ -44,7 +47,9 @@ export function createApp(deps: { db: Db; env: Pick<Env, "WEBHOOK_SECRET"> }) {
       deps.env.WEBHOOK_SECRET,
     ),
   );
-  // TODO(dia 1 · bloco 4): app.use(journeyRoutes(...))  → GET /partners/:code/journey e GET /metrics/attribution
+  app.use(
+    journeyRoutes(createJourneyService(createJourneyRepository(deps.db))),
+  );
 
   app.use((_req, res) => {
     res.status(404).json({ error: "not_found" });

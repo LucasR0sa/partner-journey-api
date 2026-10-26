@@ -15,6 +15,7 @@
     "seed": "node --env-file-if-exists=.env --import tsx tools/seed.ts",
     "sync": "node --env-file-if-exists=.env --import tsx src/jobs/run-sync.ts",
     "sync:full": "node --env-file-if-exists=.env --import tsx src/jobs/run-sync.ts --full",
+    "explain:reads": "node --env-file-if-exists=.env --import tsx tools/explain-reads.ts",
     "fake-crm": "tsx tools/fake-crm.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
