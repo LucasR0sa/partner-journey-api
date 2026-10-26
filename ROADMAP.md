@@ -39,10 +39,12 @@ O envio ao Discord continua disponível ao configurar um webhook; a demonstraç�
 
 ## Bloco 4 — Leituras (1h30)
 
-- [ ] `findJourney`: um SELECT com `LEFT JOIN leads` + `SUM/COUNT/MIN/MAX` em `production`
-- [ ] `attribution`: `GROUP BY COALESCE(l.source, 'sem_origem')`, filtrando por período de `paid_at`
-- [ ] Rotas `GET /partners/:code/journey` (404 se não existir) e `GET /metrics/attribution?from=&to=`
-- [ ] Rodar `EXPLAIN ANALYZE` na query de atribuição e anotar no README se os índices estão sendo usados
+- [x] `findJourney`: um SELECT com `LEFT JOIN leads` + agregação LATERAL de `production`
+- [x] `attribution`: métricas independentes de cadastro e produção por canal, com `sem_origem` e `sem_cadastro`
+- [x] Rotas `GET /partners/:code/journey` (404 se não existir) e `GET /metrics/attribution?from=&to=`
+- [x] Testes reais de integração substituem os TODOs de leituras, com datas inclusivas em UTC
+- [x] `EXPLAIN ANALYZE` das duas queries, índice por `paid_at` na migration 003 e comparação no README
+- [x] Demonstração com seed + sync e curls reais no README; leituras sem autenticação documentadas
 
 ## Bloco 5 — Fechamento (1h15)
 
