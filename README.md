@@ -95,7 +95,9 @@ o reenvio não conta novamente contratos já vinculados. Nenhum contrato é desc
 Antes de marcar sucesso, a sync reconcilia pendências de qualquer página com parceiros já
 confirmados e registra quantos contratos vinculou em `relinked`. `unlinked` reflete o estado
 gravado em cada UPSERT, antes dessa reconciliação; não é o total final de pendências no banco.
-O `COALESCE` preserva um vínculo confirmado durante uma releitura concorrente.
+O `COALESCE` preserva um vínculo confirmado durante uma releitura concorrente apenas se
+`partner_code` não mudou. Se o CRM transferir o contrato, o vínculo antigo é substituído;
+quando o novo parceiro ainda não existe, o contrato aguarda seu cadastro com `partner_id` nulo.
 
 Na segunda execução, o total continuou em **2.000 linhas**, sendo 532 ainda sem cadastro:
 

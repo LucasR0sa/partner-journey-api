@@ -64,7 +64,9 @@ export function createSyncRepository(db: Db) {
              VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (crm_contract_id) DO UPDATE SET
                partner_code = EXCLUDED.partner_code,
-               partner_id = COALESCE(EXCLUDED.partner_id, production.partner_id),
+               partner_id = CASE WHEN EXCLUDED.partner_code = production.partner_code
+                 THEN COALESCE(EXCLUDED.partner_id, production.partner_id)
+                 ELSE EXCLUDED.partner_id END,
                amount_cents = EXCLUDED.amount_cents,
                paid_at = EXCLUDED.paid_at,
                synced_at = now()
